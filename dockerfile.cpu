@@ -1,0 +1,32 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Järjestelmäriippuvuudet
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    libglib2.0-0 \
+    libgl1 \
+    libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Kopioi requirements ensin cachea varten
+COPY requirements.txt .
+
+# Päivitä pip
+RUN pip install --upgrade pip
+
+# CPU-versio Torchista
+RUN pip install \
+    torch==2.8.0 \
+    torchaudio==2.8.0 \
+    torchvision==0.23.0
+
+# Asenna muut riippuvuudet
+RUN pip install -r requirements.txt
+
+# Kopioi projektin tiedostot
+COPY . .
+
+# Käynnistys
+CMD ["python", "-m", "src.main"]

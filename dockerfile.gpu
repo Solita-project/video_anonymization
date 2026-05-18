@@ -1,0 +1,27 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    libglib2.0-0 \
+    libgl1 \
+    libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+
+# Asenna CUDA-versio kerran
+RUN pip install --upgrade pip
+
+RUN pip install \
+    torch==2.8.0 \
+    torchaudio==2.8.0 \
+    torchvision==0.23.0 \
+    --index-url https://download.pytorch.org/whl/cu126
+
+RUN pip install -r requirements.txt
+
+COPY . .
+
+CMD ["python","-m","src.main"]

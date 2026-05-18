@@ -6,9 +6,6 @@ __pycache__/
 # C extensions
 *.so
 
-# Hugging Face cache
-cache/
-
 # Distribution / packaging
 .Python
 build/
@@ -154,6 +151,7 @@ activemq-data/
 .env
 .envrc
 .venv
+.venv/
 env/
 venv/
 ENV/
@@ -219,3 +217,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Data
+*.mp4
+*.mp3
+*.wav
+output/
+input/
