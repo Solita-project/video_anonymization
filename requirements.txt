@@ -1,0 +1,8 @@
+pyannote.audio
+huggingface-hub
+ultralytics
+opencv-python-headless
+python-dotenv
+chatterbox-tts
+soundfile
+pydub
