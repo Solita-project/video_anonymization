@@ -218,6 +218,9 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# FFMPEG
+tools/
+
 # Data
 *.mp4
 *.mp3
