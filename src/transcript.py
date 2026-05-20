@@ -22,7 +22,7 @@ else:
     print("Running on CPU")
 
 # Resolves project base directory (root of the project inside container)
-from src.config import BASE_DIR
+BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)))
 
 # Input and output file paths
 AUDIO_FILE = os.path.join(BASE_DIR, "data", "input", "audio.wav")

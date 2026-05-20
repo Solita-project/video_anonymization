@@ -16,7 +16,7 @@ if HF_TOKEN is None:
     raise ValueError("HF token missing")
 
 # Resolves the project base directory used for all file paths
-from src.config import BASE_DIR
+BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)))
 
 # Input and output file paths
 AUDIO_FILE = os.path.join(BASE_DIR, "data", "input", "audio.wav")

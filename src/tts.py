@@ -5,8 +5,6 @@
 
 import os
 import json
-import torch
-import torchaudio as ta
 
 from chatterbox.tts import ChatterboxTTS
 
@@ -14,7 +12,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 FINAL_TRANSCRIPT_FILE = os.path.join(BASE_DIR, "output", "final_transcript.json")
-VOICES_FILE = os.path.join(BASE_DIR, "voices", -A .wav)
+VOICES_FILE = os.path.join(BASE_DIR, "voices", "*.wav")
 OUTPUT_FILE = os.path.join(BASE_DIR, "output", "clean_audio.wav")
 
 model = ChatterboxTTS.from_pretrained(
@@ -27,7 +25,7 @@ with open(TRANSCRIPT_FILE, "r", encoding="utf-8") as f:
 
 segments = data["segments"]
 
-text = " ".join(
+text = " ".join (
     segments["text"].strip()
     for segment in data["segments"]:
         text = segment["text"]
@@ -44,7 +42,7 @@ wav = model.generate(
     audio_prompt_path=VOICES_FILE
 )
 
-if wav.dim() == 1
+if wav.dim() == 1:
     wav = wav.unsqueeze(0)
 
 os.makedirs(os.path.dirname(OUTPUT_FILE), exit_ok=True)

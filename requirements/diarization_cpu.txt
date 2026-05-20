@@ -1,0 +1,1 @@
+# requirements for diarization.py when running on CPU

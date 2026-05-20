@@ -1,0 +1,1 @@
+# requirements for app.py when running on CPU and GPU

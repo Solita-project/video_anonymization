@@ -1,8 +1,7 @@
 import os
 import subprocess
 
-# Resolves project base directory (root of the project inside container)
-from src.config import BASE_DIR
+BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)))
 
 # Input and output file paths
 VIDEO_PATH = os.path.join(BASE_DIR, "data", "input", "video.mp4")
