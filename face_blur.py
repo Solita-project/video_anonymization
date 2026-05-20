@@ -1,40 +1,11 @@
-# 1. Load dependencies and configuration
-#    - input video path
-#    - output video path
-#    - YOLO face model path
-#    - blur strength
-
-# 2. Load the face detection model
-#    - initialize YOLO with face-specific weights
-
-# 3. Open the input video
-#    - check that the file opens successfully
-#    - read width, height, fps, and codec info
-
-# 4. Create the output video writer
-#    - same resolution and fps as input
-
-# 5. Process video frame by frame
-#    - read one frame
-#    - run face detection
-#    - loop over all detected face bounding boxes
-#    - crop each face region
-#    - apply blur
-#    - paste blurred region back into frame
-#    - write processed frame to output video
-
-# 6. Clean up
-#    - release video reader
-#    - release video writer
-#    - close OpenCV windows
-
-# 7. Output
-#    - saved anonymized video file
-
 import cv2
 from ultralytics import YOLO
 import time
+import easyocr
 
+# -----------
+# constants
+# -----------
 INPUT_VIDEO_PATH = "hyva_intubointi.mp4"
 OUTPUT_VIDEO_PATH = f"{INPUT_VIDEO_PATH.split('.')[0]}_blurred.mp4"
 DEBUG_OUTPUT_VIDEO_PATH = f"{INPUT_VIDEO_PATH.split('.')[0]}_debug_boxes.mp4"
@@ -44,24 +15,50 @@ MODEL_PATH = "yolov8s-face-lindevs.pt"
 BLUR_KERNEL_SIZE = (99, 99)
 BLUR_SIGMA = 30
 
-CONFIDENCE_THRESHOLD = 0.08
+OCR_CONFIDENCE_THRESHOLD = 0.2
+OCR_EVERY_N_FRAMES = 5
+OCR_HOLD_FRAMES = 10
+
+FACE_CONFIDENCE_THRESHOLD = 0.08
 BOX_PADDING = 0.35
-HOLD_FRAMES = 15
+FACE_HOLD_FRAMES = 15
 IOU_THRESHOLD = 0.30
 
 # -----------
 # fucntions
 # -----------
 
-def run_face_detection(frame, model,CONFIDENCE_THRESHOLD):
-    results = model(frame, conf=CONFIDENCE_THRESHOLD, verbose=False)[0]
 
-    return results
+def run_face_detection(frame, model,confidence_threshold):
+    face_results = model(frame, conf=confidence_threshold, verbose=False)[0]
 
-def get_padded_face_boxes(results, frame_width, frame_height):
+    return face_results
 
+def get_padded_ocr_boxes(frame, reader, frame_width, frame_height):
+    ocr_results = reader.readtext(frame,detail=1)
     boxes = []
-    for box in results.boxes:
+    for (bbox, text, conf) in ocr_results:
+        if conf < OCR_CONFIDENCE_THRESHOLD:
+            continue
+        x_values = [point[0] for point in bbox]
+        y_values = [point[1] for point in bbox]
+        x1 = int(min(x_values))
+        y1 = int(min(y_values))
+        x2 = int(max(x_values))
+        y2 = int(max(y_values))
+        padded_box = expand_box(
+            (x1, y1, x2, y2),
+            BOX_PADDING,
+            frame_width,
+            frame_height
+        )
+        if padded_box is not None:
+            boxes.append(padded_box)
+    return boxes
+
+def get_padded_face_boxes(face_results, frame_width, frame_height):
+    boxes = []
+    for box in face_results.boxes:
         x1, y1, x2, y2 = box.xyxy[0]
 
         padded_box = expand_box(
@@ -77,7 +74,7 @@ def get_padded_face_boxes(results, frame_width, frame_height):
 
     return boxes
 
-def expand_box(box, BOX_PADDING, frame_width, frame_height):
+def expand_box(box, padding, frame_width, frame_height):
     x1, y1, x2, y2 = box
 
     x1 = int(x1)
@@ -88,8 +85,8 @@ def expand_box(box, BOX_PADDING, frame_width, frame_height):
     box_width = x2 - x1
     box_height = y2 - y1
 
-    pad_w = int(box_width * BOX_PADDING)
-    pad_h = int(box_height * BOX_PADDING)
+    pad_w = int(box_width * padding)
+    pad_h = int(box_height * padding)
 
     x1 = max(0, x1 - pad_w)
     y1 = max(0, y1 - pad_h)
@@ -125,7 +122,7 @@ def box_iou(box_a, box_b):
     return inter_area / union_area
 
 
-def track_faces(current_boxes, tracked_boxes, IOU_THRESHOLD, HOLD_FRAMES):
+def track_faces(current_boxes, tracked_boxes, iou_threshold, hold_frames):
     updated_tracks = []
     for current_box in current_boxes:
         best_match = None
@@ -138,7 +135,7 @@ def track_faces(current_boxes, tracked_boxes, IOU_THRESHOLD, HOLD_FRAMES):
                 best_iou = iou
                 best_match = track
 
-        if best_match is not None and best_iou >= IOU_THRESHOLD:
+        if best_match is not None and best_iou >= iou_threshold:
 
             best_match["box"] = current_box
             best_match["missed"] = 0
@@ -158,7 +155,7 @@ def track_faces(current_boxes, tracked_boxes, IOU_THRESHOLD, HOLD_FRAMES):
             if box_iou(
                 old_track["box"],
                 new_track["box"]
-            ) >= IOU_THRESHOLD:
+            ) >= iou_threshold:
 
                 already_kept = True
                 break
@@ -166,7 +163,7 @@ def track_faces(current_boxes, tracked_boxes, IOU_THRESHOLD, HOLD_FRAMES):
         if not already_kept:
             old_track["missed"] += 1
 
-            if old_track["missed"] <= HOLD_FRAMES:
+            if old_track["missed"] <= hold_frames:
                 updated_tracks.append(old_track)
 
     return updated_tracks
@@ -186,8 +183,10 @@ def blur_boxes(frame, boxes_to_blur):
         frame[y1:y2, x1:x2] = blurred_region
 
 start_time = time.perf_counter()
+
 model = YOLO(MODEL_PATH)
 cap = cv2.VideoCapture(INPUT_VIDEO_PATH)
+reader = easyocr.Reader(['en','sv']) # other languages can be added as well.
 
 if not cap.isOpened():
     raise RuntimeError(f"Could not open video {INPUT_VIDEO_PATH}")
@@ -201,16 +200,13 @@ out = cv2.VideoWriter(OUTPUT_VIDEO_PATH, fourcc,fps,(frame_width, frame_height)
 )
 debug_out = cv2.VideoWriter(DEBUG_OUTPUT_VIDEO_PATH,fourcc,fps,(frame_width, frame_height)
 )
+
+
 # -----------------
 # main processing loop
-# logic:
-# 1. run face detection on current frame
-# 2. get bounding boxes of detected faces
-# 3. track faces across frames using IoU and a simple tracking logic
-# 4. blur the tracked boxes in the current frame
-# 5. write the processed frame to output video
 # -----------------
-
+last_ocr_boxes=[]
+last_ocr_frame = 0
 
 tracked_boxes=[]
 frame_count = 0
@@ -222,19 +218,31 @@ while True:
 
     frame_count += 1
 
-    results = run_face_detection(frame, model, CONFIDENCE_THRESHOLD)
+    face_results = run_face_detection(frame, model, FACE_CONFIDENCE_THRESHOLD)
 
-    current_boxes = get_padded_face_boxes(results, frame_width, frame_height)
 
-    debug_frame = results.plot()
+    current_face_boxes = get_padded_face_boxes(face_results, frame_width, frame_height)
+
+    if frame_count % OCR_EVERY_N_FRAMES == 0:
+        current_ocr_boxes = get_padded_ocr_boxes(frame, reader, frame_width, frame_height)
+        last_ocr_boxes = current_ocr_boxes
+        last_ocr_frame = frame_count
+    elif frame_count - last_ocr_frame <= OCR_HOLD_FRAMES:
+        current_ocr_boxes = last_ocr_boxes
+    else:
+        current_ocr_boxes = []
+
+
+    debug_frame = face_results.plot()
 
     tracked_boxes = track_faces(
-        current_boxes,
+        current_face_boxes,
         tracked_boxes,
         IOU_THRESHOLD,
-        HOLD_FRAMES
+        FACE_HOLD_FRAMES
     )
     boxes_to_blur = [track["box"] for track in tracked_boxes]
+    boxes_to_blur.extend(current_ocr_boxes)
     blur_boxes(frame, boxes_to_blur)
 
     out.write(frame)
@@ -243,8 +251,8 @@ while True:
     if frame_count % 30 == 0:
         print(f"Processed {frame_count} frames")
 
-    if frame_count >= 600:
-        print("Reached 600 frames, stopping early for testing")
+    if frame_count >= 300:
+        print("Reached 300 frames, stopping early for testing")
         break
 
 cap.release()
@@ -252,8 +260,11 @@ out.release()
 debug_out.release()
 
 cv2.destroyAllWindows()
+
 end_time = time.perf_counter()
 elapsed_time = end_time - start_time
+
 print(f"Saved blurred video to: {OUTPUT_VIDEO_PATH}")
 print(f"Saved debug video to: {DEBUG_OUTPUT_VIDEO_PATH}")
+
 print(f"Total runtime: {elapsed_time:.2f} seconds ({elapsed_time / 60:.2f} minutes)")
