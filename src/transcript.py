@@ -1,125 +1,296 @@
 # This script:
-# 1. Loads a WAV audio file
-# 2. Transcribes speech using WhisperX
-# 3. Aligns every spoken word with timestamps
-# 4. Saves the transcription as JSON
+# 1. Loads an extracted WAV audio file
+# 2. Uses WhisperX to transcribe speech
+# 3. Aligns spoken words with precise timestamps
+# 4. Saves structured transcription output as JSON
+
+
+from pathlib import Path
 import json
-import os
+
 import torch
 import whisperx
-from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
 
-# Prints CUDA availability for debugging purposes
-print(f"CUDA available: {torch.cuda.is_available()}")
+# Resolve project root directory automatically
+# Makes file paths work on Windows, macOS and Linux
+ROOT_DIR = Path(__file__).resolve().parent.parent
 
-# Reports GPU information if CUDA is available, otherwise falls back to CPU
-if torch.cuda.is_available():
-    print(f"GPU: {torch.cuda.get_device_name(0)}")
-else:
-    print("Running on CPU")
 
-# Resolves project base directory (root of the project inside container)
-BASE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)))
-
-# Input and output file paths
-AUDIO_FILE = os.path.join(BASE_DIR, "data", "input", "audio.wav")
-OUTPUT_FILE = os.path.join(BASE_DIR, "data", "output", "transcription.json")
-
-# WhisperX configuration
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
-COMPUTE_TYPE = (
-    "float16"
-    if DEVICE == "cuda"
-    else "int8"
+# Input and output file locations
+AUDIO_FILE = (
+    ROOT_DIR
+    / "data"
+    / "input"
+    / "audio.wav"
 )
 
+OUTPUT_FILE = (
+    ROOT_DIR
+    / "data"
+    / "output"
+    / "transcription.json"
+)
+
+
+# WhisperX configuration
 MODEL_NAME = "turbo"
+
+# Finnish language
 LANGUAGE = "fi"
 
-print(f"Using device: {DEVICE}")
-print(f"Compute type: {COMPUTE_TYPE}")
+
+def get_device():
+    """
+    Automatically choose GPU when available.
+
+    Returns:
+        str: "cuda" or "cpu"
+    """
+
+    return (
+        "cuda"
+        if torch.cuda.is_available()
+        else "cpu"
+    )
+
+
+def get_compute_type(device):
+    """
+    Select suitable compute type based on device.
+
+    GPU:
+        float16
+
+    CPU:
+        int8
+
+    Args:
+        device (str)
+
+    Returns:
+        str
+    """
+
+    if device == "cuda":
+        return "float16"
+
+    return "int8"
 
 
 def transcribe():
-    # Ensure the audio file exists before processing
-    if not os.path.exists(AUDIO_FILE):
-        raise FileNotFoundError(f"Audio file not found: {AUDIO_FILE}")
+    """
+    Main transcription pipeline.
+    """
 
-    # Create output directory if it does not already exist
-    os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
+    # Verify audio file exists before processing starts
+    if not AUDIO_FILE.exists():
 
-    # Load WhisperX transcription model
-    print("Loading WhisperX model...")
-    model = whisperx.load_model(
-        MODEL_NAME,
-        DEVICE,
-        compute_type=COMPUTE_TYPE,
-        language=LANGUAGE,
+        raise FileNotFoundError(
+            f"Audio file not found:\n{AUDIO_FILE}"
+        )
+
+    # Create output folder automatically
+    OUTPUT_FILE.parent.mkdir(
+        parents=True,
+        exist_ok=True
     )
 
-    # Load audio into memory
-    print("Loading audio...")
-    audio = whisperx.load_audio(AUDIO_FILE)
+    # Detect available hardware
+    device = get_device()
 
-    # Run WhisperX transcription
-    print("Starting transcription...")
-    result = model.transcribe(audio, batch_size=2)
-
-    # Load alignment model for accurate word-level timestamps
-    print("Loading alignment model...")
-    model_a, metadata = whisperx.load_align_model(
-        language_code=result["language"],
-        device=DEVICE,
+    compute_type = get_compute_type(
+        device
     )
 
-    # Align words with precise timestamps
-    print("Aligning words...")
-    result = whisperx.align(
-        result["segments"],
-        model_a,
-        metadata,
-        audio,
-        DEVICE,
-        return_char_alignments=False,
+    print(
+        "\n===== SYSTEM INFO ====="
     )
+
+    print(
+        f"CUDA available: "
+        f"{torch.cuda.is_available()}"
+    )
+
+    if torch.cuda.is_available():
+
+        print(
+            f"GPU: "
+            f"{torch.cuda.get_device_name(0)}"
+        )
+
+    else:
+
+        print(
+            "Running on CPU"
+        )
+
+    print(
+        f"Device: {device}"
+    )
+
+    print(
+        f"Compute type: "
+        f"{compute_type}"
+    )
+
+    print(
+        "=======================\n"
+    )
+
+    try:
+
+        # Load WhisperX speech model
+        print(
+            "Loading WhisperX model..."
+        )
+
+        model = whisperx.load_model(
+            MODEL_NAME,
+            device,
+            compute_type=compute_type,
+            language=LANGUAGE
+        )
+
+        # Load audio into memory
+        print(
+            "Loading audio..."
+        )
+
+        audio = whisperx.load_audio(
+            str(AUDIO_FILE)
+        )
+
+        # Perform initial transcription
+        print(
+            "Starting transcription..."
+        )
+
+        result = model.transcribe(
+            audio,
+            batch_size=2
+        )
+
+        # Load alignment model
+        # Used to improve timestamp accuracy
+        print(
+            "Loading alignment model..."
+        )
+
+        model_a, metadata = (
+            whisperx.load_align_model(
+                language_code=result[
+                    "language"
+                ],
+                device=device
+            )
+        )
+
+        # Align words precisely
+        print(
+            "Aligning words..."
+        )
+
+        result = whisperx.align(
+            result["segments"],
+            model_a,
+            metadata,
+            audio,
+            device,
+            return_char_alignments=False
+        )
+
+    except Exception as e:
+
+        raise RuntimeError(
+            f"Transcription failed:\n{e}"
+        )
 
     # Final JSON structure
     transcription = []
 
-    # Process every transcription segment
+    # Iterate through each transcription segment
     for segment in result["segments"]:
-        # Store word-level timestamps for the current segment
+
         words = []
 
-        # Extract every aligned word and its timestamps
-        for word in segment.get("words", []):
-            if "start" in word and "end" in word:
+        # Extract word-level timestamps
+        for word in segment.get(
+            "words",
+            []
+        ):
+
+            if (
+                "start" in word
+                and "end" in word
+            ):
+
                 words.append({
-                    "word": word["word"].strip(),
-                    "start": round(word["start"], 2),
-                    "end": round(word["end"], 2),
+
+                    "word":
+                    word["word"].strip(),
+
+                    "start":
+                    round(
+                        word["start"],
+                        2
+                    ),
+
+                    "end":
+                    round(
+                        word["end"],
+                        2
+                    )
+
                 })
 
-        # Appends structured segment data to final output
-        transcription.append(
-            {
-                "segment_start": round(segment["start"], 2),
-                "segment_end": round(segment["end"], 2),
-                "text": segment["text"].strip(),
-                "words": words,
-            }
+        # Store complete segment structure
+        transcription.append({
+
+            "segment_start":
+            round(
+                segment["start"],
+                2
+            ),
+
+            "segment_end":
+            round(
+                segment["end"],
+                2
+            ),
+
+            "text":
+            segment["text"].strip(),
+
+            "words":
+            words
+        })
+
+    # Save formatted JSON output
+    with open(
+        OUTPUT_FILE,
+        "w",
+        encoding="utf-8"
+    ) as f:
+
+        json.dump(
+            transcription,
+            f,
+            indent=4,
+            ensure_ascii=False
         )
 
-    # Save transcription result as formatted JSON
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-        json.dump(transcription, f, indent=4, ensure_ascii=False)
+    print(
+        "\nTranscription complete"
+    )
 
-        print(f"Transcription successfully saved to {OUTPUT_FILE}")
+    print(
+        f"Saved to:\n{OUTPUT_FILE}"
+    )
 
+# TEST!
+if torch.cuda.is_available():
+    torch.cuda.empty_cache()
 
 if __name__ == "__main__":
     transcribe()

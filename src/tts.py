@@ -1,56 +1,211 @@
-# Gets clean_transcript.json
-# Gets SPEAKER_ID.json
-# Uses tts to create the new audio.wav file
-# > final_transcript
+# This script:
+# 1. Loads final_transcript.json
+# 2. Extracts cleaned speaker text
+# 3. Loads Chatterbox TTS model
+# 4. Generates speech audio
+# 5. Saves clean_audio.wav
 
-import os
+
+from pathlib import Path
 import json
+
+import torch
+import torchaudio as ta
 
 from chatterbox.tts import ChatterboxTTS
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Resolve project root automatically
+ROOT_DIR = Path(__file__).resolve().parent.parent
 
 
-FINAL_TRANSCRIPT_FILE = os.path.join(BASE_DIR, "output", "final_transcript.json")
-VOICES_FILE = os.path.join(BASE_DIR, "voices", "*.wav")
-OUTPUT_FILE = os.path.join(BASE_DIR, "output", "clean_audio.wav")
-
-model = ChatterboxTTS.from_pretrained(
-    "Finnish-NLP/Chatterbox-Finnish",
-    device="cpu"
+# Input/output paths
+FINAL_TRANSCRIPT_FILE = (
+    ROOT_DIR
+    / "data"
+    / "output"
+    / "final_transcript.json"
 )
 
-with open(TRANSCRIPT_FILE, "r", encoding="utf-8") as f:
-    data = json.load(f)
-
-segments = data["segments"]
-
-text = " ".join (
-    segments["text"].strip()
-    for segment in data["segments"]:
-        text = segment["text"]
-        start = segment["start"]
-        end = segment["end"]
-        speaker = segment.get("speaker", "unknown")
+VOICE_FILE = (
+    ROOT_DIR
+    / "voices"
+    / "speaker.wav"
 )
 
-# Take text from the final transcript
-# Take speaker id from diarization
-# Seperate speakers by speaker id
-wav = model.generate(
-    text,
-    audio_prompt_path=VOICES_FILE
+OUTPUT_FILE = (
+    ROOT_DIR
+    / "data"
+    / "output"
+    / "clean_audio.wav"
 )
 
-if wav.dim() == 1:
-    wav = wav.unsqueeze(0)
 
-os.makedirs(os.path.dirname(OUTPUT_FILE), exit_ok=True)
+def get_device():
+    """
+    Automatically use GPU if available.
+    Otherwise fallback to CPU.
+    """
 
-ta.save(
-    OUTPUT_FILE,
-    wav.cpu(),
-    model.sr
-)
+    return (
+        "cuda"
+        if torch.cuda.is_available()
+        else "cpu"
+    )
 
-print(f"Saved audio to {OUTPUT_FILE}")
+
+def load_transcript():
+    """
+    Load transcript JSON.
+    """
+
+    if not FINAL_TRANSCRIPT_FILE.exists():
+
+        raise FileNotFoundError(
+            f"Missing:\n{FINAL_TRANSCRIPT_FILE}"
+        )
+
+    with open(
+        FINAL_TRANSCRIPT_FILE,
+        "r",
+        encoding="utf-8"
+    ) as f:
+
+        return json.load(f)
+
+
+def build_text(data):
+    """
+    Combine transcript segments
+    into one text block.
+    """
+
+    text_parts = []
+
+    for segment in data.get(
+        "segments",
+        []
+    ):
+
+        text = (
+            segment.get(
+                "text",
+                ""
+            )
+            .strip()
+        )
+
+        if text:
+
+            text_parts.append(
+                text
+            )
+
+    return " ".join(
+        text_parts
+    )
+
+
+def generate_audio():
+
+    device = get_device()
+
+    print(
+        f"\nUsing device: {device}"
+    )
+
+    # Verify voice sample exists
+    if not VOICE_FILE.exists():
+
+        raise FileNotFoundError(
+            f"Missing voice file:\n{VOICE_FILE}"
+        )
+
+    # Create output directory
+    OUTPUT_FILE.parent.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    print(
+        "Loading transcript..."
+    )
+
+    data = load_transcript()
+
+    print(
+        "Preparing text..."
+    )
+
+    text = build_text(
+        data
+    )
+
+    if not text:
+
+        raise ValueError(
+            "No text found in transcript"
+        )
+
+    try:
+
+        print(
+            "Loading TTS model..."
+        )
+
+        model = (
+            ChatterboxTTS
+            .from_pretrained(
+                "Finnish-NLP/Chatterbox-Finnish",
+                device=device
+            )
+        )
+
+        print(
+            "Generating speech..."
+        )
+
+        wav = model.generate(
+
+            text,
+
+            audio_prompt_path=
+            str(VOICE_FILE)
+
+        )
+
+    except Exception as e:
+
+        raise RuntimeError(
+            f"TTS generation failed:\n{e}"
+        )
+
+    # Ensure waveform has channel dimension
+    if wav.dim() == 1:
+
+        wav = wav.unsqueeze(
+            0
+        )
+
+    print(
+        "Saving audio..."
+    )
+
+    ta.save(
+
+        str(OUTPUT_FILE),
+
+        wav.cpu(),
+
+        model.sr
+
+    )
+
+    print(
+        f"\nAudio saved:\n"
+        f"{OUTPUT_FILE}"
+    )
+
+
+if __name__ == "__main__":
+    generate_audio()

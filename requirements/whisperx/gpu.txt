@@ -1,0 +1,4 @@
+whisperx
+ffmpeg-python
+numpy
+python-dotenv

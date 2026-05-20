@@ -1,50 +1,138 @@
-# > diarization.json
-# > transcript.json
-# = final_transcript.json (start, end, text, speaker_id)
+# This script:
+# 1. Loads transcript.json
+# 2. Loads diarization.json
+# 3. Matches words to speakers
+# 4. Groups words into speaker segments
+# 5. Saves final_transcript.json
 
-import os
+
+from pathlib import Path
 import json
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-TRANSCRIPT_FILE = os.path.join(BASE_DIR, "output", "clean_transcript.json")
-DIARIZATION_FILE = os.path.join(BASE_DIR, "output", "diarization.json")
-OUTPUT_FILE = os.path.join(BASE_DIR, "output", "final_transcript.json")
+# Resolve project root automatically
+ROOT_DIR = Path(__file__).resolve().parent.parent
 
-# function for cleaning text
+
+# Input/output file locations
+TRANSCRIPT_FILE = (
+    ROOT_DIR
+    / "data"
+    / "output"
+    / "transcription.json"
+)
+
+DIARIZATION_FILE = (
+    ROOT_DIR
+    / "data"
+    / "output"
+    / "diarization.json"
+)
+
+OUTPUT_FILE = (
+    ROOT_DIR
+    / "data"
+    / "output"
+    / "final_transcript.json"
+)
+
+
 def clean_text(words):
+    """
+    Join words and remove spacing issues around punctuation.
+    """
+
     text = " ".join(words)
+
     return (
         text.replace(" ,", ",")
-            .replace(" .", ".")
-            .replace(" !", "!")
-            .replace(" ?", "?")
-            .strip()
+        .replace(" .", ".")
+        .replace(" !", "!")
+        .replace(" ?", "?")
+        .strip()
     )
 
-def overlap(start, end, diar_start, diar_end):
-    return max(0.0, min(end, diar_end) - max(start, diar_start))
+
+def overlap(
+    start,
+    end,
+    diar_start,
+    diar_end
+):
+    """
+    Calculate time overlap between
+    transcript and speaker segment.
+    """
+
+    return max(
+        0.0,
+        min(end, diar_end)
+        - max(start, diar_start)
+    )
+
 
 def load_diarization(diarization):
-    if isinstance(diarization, list):
+    """
+    Support multiple possible
+    diarization JSON formats.
+    """
+
+    if isinstance(
+        diarization,
+        list
+    ):
         return diarization
 
-    if isinstance(diarization, dict) and "segments" in diarization:
-        return diarization["segments"]
+    if (
+        isinstance(
+            diarization,
+            dict
+        )
+        and "segments"
+        in diarization
+    ):
+        return diarization[
+            "segments"
+        ]
 
-    raise ValueError("could not read diarization.json")
+    raise ValueError(
+        "Could not read diarization.json"
+    )
 
 
-def speaker_word(start, end, diarization):
+def speaker_word(
+    start,
+    end,
+    diarization
+):
+    """
+    Determine which speaker
+    overlaps most with a word.
+    """
+
     best_speaker = "unknown"
+
     best_overlap = 0.0
 
     for diar in diarization:
-        diar_start = diar.get("start")
-        diar_end = diar.get("end")
-        speaker = diar.get("speaker", "unknown")
 
-        if diar_start is None or diar_end is None:
+        diar_start = diar.get(
+            "start"
+        )
+
+        diar_end = diar.get(
+            "end"
+        )
+
+        speaker = diar.get(
+            "speaker",
+            "unknown"
+        )
+
+        if (
+            diar_start is None
+            or diar_end is None
+        ):
             continue
 
         amount = overlap(
@@ -55,13 +143,23 @@ def speaker_word(start, end, diarization):
         )
 
         if amount > best_overlap:
+
             best_overlap = amount
+
             best_speaker = speaker
 
     return best_speaker
 
-# save current segment into segment-list
-def flush_current(new_segments, current):
+
+def flush_current(
+    new_segments,
+    current
+):
+    """
+    Save currently accumulated
+    speaker segment.
+    """
+
     if current is None:
         return None
 
@@ -69,109 +167,281 @@ def flush_current(new_segments, current):
         return None
 
     new_segments.append({
-        "segment_id": len(new_segments),
-        "start": round(current["start"], 3),
-        "end": round(current["end"], 3),
-        "speaker": current["speaker"],
-        "text": clean_text(current["words"])
+
+        "segment_id":
+        len(new_segments),
+
+        "start":
+        round(
+            current["start"],
+            3
+        ),
+
+        "end":
+        round(
+            current["end"],
+            3
+        ),
+
+        "speaker":
+        current["speaker"],
+
+        "text":
+        clean_text(
+            current["words"]
+        )
+
     })
+
     return None
 
-# Merge transcripts words to diarized word-stamps
+
 def merge():
-    with open(TRANSCRIPT_FILE, encoding="utf-8") as f:
+
+    # Verify input files exist
+    if not TRANSCRIPT_FILE.exists():
+
+        raise FileNotFoundError(
+            f"Missing:\n{TRANSCRIPT_FILE}"
+        )
+
+    if not DIARIZATION_FILE.exists():
+
+        raise FileNotFoundError(
+            f"Missing:\n{DIARIZATION_FILE}"
+        )
+
+    # Create output directory
+    OUTPUT_FILE.parent.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    # Load transcript
+    with open(
+        TRANSCRIPT_FILE,
+        encoding="utf-8"
+    ) as f:
+
         transcript = json.load(f)
 
-    with open(DIARIZATION_FILE, encoding="utf-8") as f:
+    # Load diarization
+    with open(
+        DIARIZATION_FILE,
+        encoding="utf-8"
+    ) as f:
+
         diarization = json.load(f)
 
-    diar = load_diarization(diarization)
+    diar = load_diarization(
+        diarization
+    )
 
     new_segments = []
+
     current = None
 
-    for seg in transcript["segments"]:
-        words = segment.get("words", [])
+    # Process each transcript segment
+    for seg in transcript:
 
+        words = seg.get(
+            "words",
+            []
+        )
+
+        # Handle empty segments
         if not words:
-            current = flush_current(new_segments, current)
 
-            start = float(segment["start"])
-            end = float(segment["end"])
-            speaker = speaker_word(start, end, diar)
+            current = flush_current(
+                new_segments,
+                current
+            )
+
+            start = float(
+                seg["segment_start"]
+            )
+
+            end = float(
+                seg["segment_end"]
+            )
+
+            speaker = speaker_word(
+                start,
+                end,
+                diar
+            )
 
             new_segments.append({
-                "segment_id": len(new_segments),
-                "start": start,
-                "end": end,
-                "speaker": speaker,
-                "text": seg.get("text", " ").strip()
+
+                "segment_id":
+                len(new_segments),
+
+                "start":
+                start,
+
+                "end":
+                end,
+
+                "speaker":
+                speaker,
+
+                "text":
+                seg.get(
+                    "text",
+                    ""
+                ).strip()
+
             })
+
             continue
 
-        # if word-stamp found, go thrue every stamp and clean
+        # Process words one-by-one
         for word in words:
-            word_text = (word.get("word") or " ").strip()
-            start = word.get("start")
-            end = word.get("end")
+
+            word_text = (
+                word.get(
+                    "word"
+                )
+                or ""
+            ).strip()
+
+            start = word.get(
+                "start"
+            )
+
+            end = word.get(
+                "end"
+            )
 
             if not word_text:
                 continue
 
-            # if current segment already exists, add word -> else add to previous segment
-            if start is None or end is None:
-                if current is not None:
-                    current["words"].append(word_text)
-                elif new_segments:
-                    new_segments[-1]["text"] = clean_text([
-                        new_segments[-1]["text"],
+            if (
+                start is None
+                or end is None
+            ):
+
+                if current:
+
+                    current[
+                        "words"
+                    ].append(
                         word_text
-                    ])
+                    )
+
                 continue
 
             start = float(start)
+
             end = float(end)
-            speaker = speaker_word(start, end, diarization)
+
+            speaker = speaker_word(
+                start,
+                end,
+                diar
+            )
 
             if current is None:
+
                 current = {
-                    "speaker": speaker,
-                    "start": start,
-                    "end": end,
-                    "words": [word_text],
+
+                    "speaker":
+                    speaker,
+
+                    "start":
+                    start,
+
+                    "end":
+                    end,
+
+                    "words":
+                    [word_text]
+
                 }
+
                 continue
 
-            same_speaker = current["speaker"] == speaker
-            small_gap = start - current["end"] < 0.8
+            same_speaker = (
+                current[
+                    "speaker"
+                ]
+                == speaker
+            )
 
-            if same_speaker and small_gap:
-                current["end"] = end
-                current["words"].append(word_text)
+            small_gap = (
+                start
+                - current["end"]
+                < 0.8
+            )
+
+            if (
+                same_speaker
+                and small_gap
+            ):
+
+                current[
+                    "end"
+                ] = end
+
+                current[
+                    "words"
+                ].append(
+                    word_text
+                )
+
             else:
-                current = flush_current(new_segments, current)
+
+                current = flush_current(
+                    new_segments,
+                    current
+                )
 
                 current = {
-                    "speaker": speaker,
-                    "start": start,
-                    "end": end,
-                    "words": [word_text]
+
+                    "speaker":
+                    speaker,
+
+                    "start":
+                    start,
+
+                    "end":
+                    end,
+
+                    "words":
+                    [word_text]
+
                 }
-        current = flush_current(new_segments, current)
 
-        output = {
-            "source": transcript.get("source"),
-            "language": transcript.get("language", "fi"),
-            "segments": new_segments,
-        }
+    current = flush_current(
+        new_segments,
+        current
+    )
 
+    output = {
 
-        os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
+        "segments":
+        new_segments
 
-        with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-            json.dump(output, f, ensure_ascii=False, indent=2)
+    }
 
-        print(f"Final transcript is in: {OUTPUT_FILE}")
+    with open(
+        OUTPUT_FILE,
+        "w",
+        encoding="utf-8"
+    ) as f:
+
+        json.dump(
+            output,
+            f,
+            ensure_ascii=False,
+            indent=4
+        )
+
+    print(
+        f"\nFinal transcript saved:\n"
+        f"{OUTPUT_FILE}"
+    )
+
 
 if __name__ == "__main__":
     merge()

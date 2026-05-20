@@ -1,1 +1,0 @@
-# venv run for transcript anonymization: Whisper

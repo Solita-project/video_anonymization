@@ -1,0 +1,6 @@
+whisperx
+torch
+torchaudio
+ffmpeg-python
+numpy
+python-dotenv

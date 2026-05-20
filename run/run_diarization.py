@@ -1,1 +1,0 @@
-# venv run for diarization: pyannote

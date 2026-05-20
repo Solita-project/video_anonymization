@@ -1,1 +1,0 @@
-# requirements for video.py when running on CPU

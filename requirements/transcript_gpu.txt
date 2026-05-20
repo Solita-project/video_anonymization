@@ -1,1 +1,0 @@
-# requirements for transcript.py when running on GPU
