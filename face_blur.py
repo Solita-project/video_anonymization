@@ -33,7 +33,7 @@
 
 import cv2
 from ultralytics import YOLO
-
+import time
 
 INPUT_VIDEO_PATH = "hyva_intubointi.mp4"
 OUTPUT_VIDEO_PATH = f"{INPUT_VIDEO_PATH.split('.')[0]}_blurred.mp4"
@@ -185,7 +185,7 @@ def blur_boxes(frame, boxes_to_blur):
 
         frame[y1:y2, x1:x2] = blurred_region
 
-
+start_time = time.perf_counter()
 model = YOLO(MODEL_PATH)
 cap = cv2.VideoCapture(INPUT_VIDEO_PATH)
 
@@ -243,8 +243,8 @@ while True:
     if frame_count % 30 == 0:
         print(f"Processed {frame_count} frames")
 
-    if frame_count >= 300:
-        print("Reached 300 frames, stopping early for testing")
+    if frame_count >= 600:
+        print("Reached 600 frames, stopping early for testing")
         break
 
 cap.release()
@@ -252,6 +252,8 @@ out.release()
 debug_out.release()
 
 cv2.destroyAllWindows()
-
+end_time = time.perf_counter()
+elapsed_time = end_time - start_time
 print(f"Saved blurred video to: {OUTPUT_VIDEO_PATH}")
 print(f"Saved debug video to: {DEBUG_OUTPUT_VIDEO_PATH}")
+print(f"Total runtime: {elapsed_time:.2f} seconds ({elapsed_time / 60:.2f} minutes)")
