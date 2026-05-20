@@ -31,8 +31,6 @@
 # 7. Output
 #    - saved anonymized video file
 
-
-
 import cv2
 from ultralytics import YOLO
 
@@ -51,11 +49,60 @@ BOX_PADDING = 0.35
 HOLD_FRAMES = 15
 IOU_THRESHOLD = 0.30
 
+# -----------
+# fucntions
+# -----------
+
+def run_face_detection(frame, model,CONFIDENCE_THRESHOLD):
+    results = model(frame, conf=CONFIDENCE_THRESHOLD, verbose=False)[0]
+
+    return results
+
+def get_padded_face_boxes(results, frame_width, frame_height):
+
+    boxes = []
+    for box in results.boxes:
+        x1, y1, x2, y2 = box.xyxy[0]
+
+        padded_box = expand_box(
+            (x1, y1, x2, y2),
+            BOX_PADDING,
+            frame_width,
+            frame_height
+        )
+        if padded_box is None:
+            continue
+
+        boxes.append(padded_box)
+
+    return boxes
+
+def expand_box(box, BOX_PADDING, frame_width, frame_height):
+    x1, y1, x2, y2 = box
+
+    x1 = int(x1)
+    y1 = int(y1)
+    x2 = int(x2)
+    y2 = int(y2)
+
+    box_width = x2 - x1
+    box_height = y2 - y1
+
+    pad_w = int(box_width * BOX_PADDING)
+    pad_h = int(box_height * BOX_PADDING)
+
+    x1 = max(0, x1 - pad_w)
+    y1 = max(0, y1 - pad_h)
+    x2 = min(frame_width, x2 + pad_w)
+    y2 = min(frame_height, y2 + pad_h)
+
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return (x1, y1, x2, y2)
 
 def box_iou(box_a, box_b):
     ax1, ay1, ax2, ay2 = box_a
     bx1, by1, bx2, by2 = box_b
-
 
     inter_x1 = max(ax1, bx1)
     inter_y1 = max(ay1, by1)
@@ -78,71 +125,7 @@ def box_iou(box_a, box_b):
     return inter_area / union_area
 
 
-model = YOLO(MODEL_PATH)
-cap = cv2.VideoCapture(INPUT_VIDEO_PATH)
-
-if not cap.isOpened():
-    raise RuntimeError(f"Could not open video {INPUT_VIDEO_PATH}")
-
-frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-fps = cap.get(cv2.CAP_PROP_FPS)
-fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-
-out = cv2.VideoWriter(OUTPUT_VIDEO_PATH, fourcc,fps,(frame_width, frame_height)
-)
-debug_out = cv2.VideoWriter(DEBUG_OUTPUT_VIDEO_PATH,fourcc,fps,(frame_width, frame_height)
-)
-
-# active tracked faces
-tracked_boxes = []
-frame_count = 0
-
-while True:
-    ret, frame = cap.read()
-    if not ret:
-        break
-
-    frame_count += 1
-
-    results = model(
-        frame,
-        conf=CONFIDENCE_THRESHOLD,
-        verbose=False
-    )[0]
-
-    debug_frame = results.plot()
-
-    current_boxes = []
-    for box in results.boxes:
-        x1, y1, x2, y2 = box.xyxy[0]
-
-        x1 = int(x1)
-        y1 = int(y1)
-        x2 = int(x2)
-        y2 = int(y2)
-
-        box_width = x2 - x1
-        box_height = y2 - y1
-
-        pad_w = int(box_width * BOX_PADDING)
-        pad_h = int(box_height * BOX_PADDING)
-
-        x1 = max(0, x1 - pad_w)
-        y1 = max(0, y1 - pad_h)
-        x2 = min(frame.shape[1], x2 + pad_w)
-        y2 = min(frame.shape[0], y2 + pad_h)
-
-        if x2 <= x1 or y2 <= y1:
-            print(
-                f"Skipping invalid box: "
-                f"x1={x1}, y1={y1}, x2={x2}, y2={y2}"
-            )
-            continue
-
-        current_boxes.append((x1, y1, x2, y2))
-
-
+def track_faces(current_boxes, tracked_boxes, IOU_THRESHOLD, HOLD_FRAMES):
     updated_tracks = []
     for current_box in current_boxes:
         best_match = None
@@ -155,14 +138,12 @@ while True:
                 best_iou = iou
                 best_match = track
 
-
         if best_match is not None and best_iou >= IOU_THRESHOLD:
 
             best_match["box"] = current_box
             best_match["missed"] = 0
 
             updated_tracks.append(best_match)
-
         else:
             updated_tracks.append({
                 "box": current_box,
@@ -185,30 +166,76 @@ while True:
         if not already_kept:
             old_track["missed"] += 1
 
-
             if old_track["missed"] <= HOLD_FRAMES:
                 updated_tracks.append(old_track)
 
-    tracked_boxes = updated_tracks
+    return updated_tracks
 
-    boxes_to_blur = [
-        track["box"]
-        for track in tracked_boxes
-    ]
 
-    for (x1, y1, x2, y2) in boxes_to_blur:
-        face_region = frame[y1:y2, x1:x2]
-
-        if face_region.size == 0:
+def blur_boxes(frame, boxes_to_blur):
+    for(x1,y1,x2,y2) in boxes_to_blur:
+        region = frame[y1:y2, x1:x2]
+        if region.size==0:
             continue
-
-        blurred_face = cv2.GaussianBlur(
-            face_region,
+        blurred_region = cv2.GaussianBlur(
+            region,
             BLUR_KERNEL_SIZE,
             BLUR_SIGMA
         )
 
-        frame[y1:y2, x1:x2] = blurred_face
+        frame[y1:y2, x1:x2] = blurred_region
+
+
+model = YOLO(MODEL_PATH)
+cap = cv2.VideoCapture(INPUT_VIDEO_PATH)
+
+if not cap.isOpened():
+    raise RuntimeError(f"Could not open video {INPUT_VIDEO_PATH}")
+
+frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+fps = cap.get(cv2.CAP_PROP_FPS)
+fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+
+out = cv2.VideoWriter(OUTPUT_VIDEO_PATH, fourcc,fps,(frame_width, frame_height)
+)
+debug_out = cv2.VideoWriter(DEBUG_OUTPUT_VIDEO_PATH,fourcc,fps,(frame_width, frame_height)
+)
+# -----------------
+# main processing loop
+# logic:
+# 1. run face detection on current frame
+# 2. get bounding boxes of detected faces
+# 3. track faces across frames using IoU and a simple tracking logic
+# 4. blur the tracked boxes in the current frame
+# 5. write the processed frame to output video
+# -----------------
+
+
+tracked_boxes=[]
+frame_count = 0
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    frame_count += 1
+
+    results = run_face_detection(frame, model, CONFIDENCE_THRESHOLD)
+
+    current_boxes = get_padded_face_boxes(results, frame_width, frame_height)
+
+    debug_frame = results.plot()
+
+    tracked_boxes = track_faces(
+        current_boxes,
+        tracked_boxes,
+        IOU_THRESHOLD,
+        HOLD_FRAMES
+    )
+    boxes_to_blur = [track["box"] for track in tracked_boxes]
+    blur_boxes(frame, boxes_to_blur)
 
     out.write(frame)
     debug_out.write(debug_frame)
@@ -228,29 +255,3 @@ cv2.destroyAllWindows()
 
 print(f"Saved blurred video to: {OUTPUT_VIDEO_PATH}")
 print(f"Saved debug video to: {DEBUG_OUTPUT_VIDEO_PATH}")
-
-
-# -----------
-# fucntions
-# -----------
-
-def load_model(model_path):
-    pass
-
-def open_video(video_path):
-    pass
-
-def create_video_writer(output_path, frame_width, frame_height, fps):
-    pass
-
-def detect_faces(model, frame):
-    pass
-
-def blur_faces(frame, boxes):
-    pass
-
-def process_video(input_path, output_path, model_path):
-    pass
-
-if __name__ == "__main__":
-    process_video(INPUT_VIDEO_PATH, OUTPUT_VIDEO_PATH, MODEL_PATH)
