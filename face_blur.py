@@ -39,7 +39,7 @@ OBJECT_HOLD_FRAMES = 15
 
 WRITE_DEBUG_VIDEO = False
 
-MAX_FRAMES = 300  # Set to None to process entire video
+MAX_FRAMES = None  # Set to None to process entire video
 
 # -----------
 # fucntions
@@ -219,7 +219,7 @@ def process_video():
 
     high_risk_object_class_ids = [class_id for class_id, class_name in object_model.names.items() if class_name in HIGH_RISK_OBJECT_CLASS_NAMES]
     if not high_risk_object_class_ids:
-        raise ValueError("No valid high-risk object class IDs found. Check the class names and model.")
+        raise ValueError("No valid high-risk object class IDs found." "Check HIGH_RISK_OBJECT_CLASS_NAMES and the object model")
 
     cap = cv2.VideoCapture(INPUT_VIDEO_PATH)
     if not cap.isOpened():
@@ -236,9 +236,9 @@ def process_video():
     if WRITE_DEBUG_VIDEO:
         debug_out = cv2.VideoWriter(DEBUG_OUTPUT_VIDEO_PATH, fourcc,fps,(frame_width, frame_height))
 
+
     tracked_boxes=[]
     frame_count = 0
-
     last_object_boxes = []
     last_object_frame = 0
 
