@@ -22,5 +22,5 @@ else:
 
 subprocess.run([
     python_path,
-    "src/speech/diarization.py"
+    "src/diarization.py"
 ])

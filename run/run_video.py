@@ -22,5 +22,5 @@ else:
 
 subprocess.run([
     python_path,
-    "src/video/video.py"
+    "src/video.py"
 ])

@@ -8,5 +8,5 @@ else:
 
 subprocess.run([
     python_path,
-    "src/tts/tts.py"
+    "src/tts.py"
 ])

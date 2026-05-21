@@ -22,5 +22,5 @@ else:
 
 subprocess.run([
     python_path,
-    "src/speech/transcript.py"
+    "src/transcript.py"
 ])

@@ -3,7 +3,7 @@
 ## Structure
 
 - `venvs/core` → core logic
-- `venvs/whisperx` → speech-to-text (WhisperX)
+- `venvs/transcript` → speech-to-text (WhisperX)
 - `venvs/speaker` → speaker diarization (Pyannote)
 - `venvs/tts` → text-to-speech (Piper + Chatterbox)
 - `venvs/video` → video processing (YOLO)
