@@ -3,6 +3,18 @@ from ultralytics import YOLO
 import time
 import easyocr
 
+
+'''
+model = YOLO("yolov8s.pt")
+print(model.names)
+YOLOv8s.pt class names:
+{0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'airplane', 5: 'bus', 6: 'train', 7: 'truck', 8: 'boat', 9: 'traffic light', 10: 'fire hydrant', 11: 'stop sign', 12: 'parking meter', 13: 'bench', 14: 'bird', 15: 'cat', 16: 'dog', 17: 'horse', 18: 'sheep', 19: 'cow', 20: 'elephant', 21: 'bear', 22: 'zebra', 23: 'giraffe', 24: 'backpack', 25: 'umbrella', 26: 'handbag', 27: 'tie', 28: 'suitcase', 29: 'frisbee', 30: 'skis', 31: 'snowboard', 32: 'sports ball', 33: 'kite', 34: 'baseball bat', 35: 'baseball glove', 36: 'skateboard', 37: 'surfboard', 38: 'tennis racket', 39: 'bottle', 40: 'wine glass', 41: 'cup', 42: 'fork', 43: 'knife', 44: 'spoon', 45: 'bowl', 46: 'banana', 47: 'apple', 48: 'sandwich', 49: 'orange', 50: 'broccoli', 51: 'carrot', 52: 'hot dog', 53: 'pizza', 54: 'donut', 55: 'cake', 56: 'chair', 57: 'couch', 58: 'potted plant', 59: 'bed', 60: 'dining table', 61: 'toilet', 62: 'tv', 63: 'laptop', 64: 'mouse', 65: 'remote', 66: 'keyboard', 67: 'cell phone', 68: 'microwave', 69: 'oven', 70: 'toaster', 71: 'sink', 72: 'refrigerator', 73: 'book', 74: 'clock', 75: 'vase', 76: 'scissors', 77: 'teddy bear', 78: 'hair drier', 79: 'toothbrush'}
+
+Use:62,63,67,73,
+'''
+
+
+
 # -----------
 # constants
 # -----------
@@ -10,17 +22,17 @@ INPUT_VIDEO_PATH = "hyva_intubointi.mp4"
 OUTPUT_VIDEO_PATH = f"{INPUT_VIDEO_PATH.split('.')[0]}_blurred.mp4"
 DEBUG_OUTPUT_VIDEO_PATH = f"{INPUT_VIDEO_PATH.split('.')[0]}_debug_boxes.mp4"
 
-MODEL_PATH = "yolov8s-face-lindevs.pt"
+FACE_MODEL_PATH = "yolov8s-face-lindevs.pt"
+OBJECT_MODEL_PATH = "yolov8s.pt"
 
 BLUR_KERNEL_SIZE = (99, 99)
 BLUR_SIGMA = 30
 
-OCR_CONFIDENCE_THRESHOLD = 0.2
-OCR_EVERY_N_FRAMES = 5
-OCR_HOLD_FRAMES = 10
-
+HIGH_RISK_OBJECT_CLASS_IDS = [67, 63, 62, 73]
 FACE_CONFIDENCE_THRESHOLD = 0.08
-BOX_PADDING = 0.35
+OBJECT_CONFIDENCE_THRESHOLD = 0.25
+FACE_BOX_PADDING = 0.35
+OBJECT_BOX_PADDING = 0.10
 FACE_HOLD_FRAMES = 15
 IOU_THRESHOLD = 0.30
 
@@ -34,27 +46,11 @@ def run_face_detection(frame, model,confidence_threshold):
 
     return face_results
 
-def get_padded_ocr_boxes(frame, reader, frame_width, frame_height):
-    ocr_results = reader.readtext(frame,detail=1)
-    boxes = []
-    for (bbox, text, conf) in ocr_results:
-        if conf < OCR_CONFIDENCE_THRESHOLD:
-            continue
-        x_values = [point[0] for point in bbox]
-        y_values = [point[1] for point in bbox]
-        x1 = int(min(x_values))
-        y1 = int(min(y_values))
-        x2 = int(max(x_values))
-        y2 = int(max(y_values))
-        padded_box = expand_box(
-            (x1, y1, x2, y2),
-            BOX_PADDING,
-            frame_width,
-            frame_height
-        )
-        if padded_box is not None:
-            boxes.append(padded_box)
-    return boxes
+def run_object_detection(frame, model, confidence_threshold):
+
+    object_results = model(frame, conf=confidence_threshold, classes=HIGH_RISK_OBJECT_CLASS_IDS, verbose=False)[0]
+
+    return object_results
 
 def get_padded_face_boxes(face_results, frame_width, frame_height):
     boxes = []
@@ -63,7 +59,25 @@ def get_padded_face_boxes(face_results, frame_width, frame_height):
 
         padded_box = expand_box(
             (x1, y1, x2, y2),
-            BOX_PADDING,
+            FACE_BOX_PADDING,
+            frame_width,
+            frame_height
+        )
+        if padded_box is None:
+            continue
+
+        boxes.append(padded_box)
+
+    return boxes
+
+def get_padded_object_boxes(object_results, frame_width, frame_height):
+    boxes = []
+    for box in object_results.boxes:
+        x1, y1, x2, y2 = box.xyxy[0]
+
+        padded_box = expand_box(
+            (x1, y1, x2, y2),
+            OBJECT_BOX_PADDING,
             frame_width,
             frame_height
         )
@@ -181,13 +195,17 @@ def blur_boxes(frame, boxes_to_blur):
         )
 
         frame[y1:y2, x1:x2] = blurred_region
+def draw_boxes(frame, boxes, color, label):
+    for (x1, y1, x2, y2) in boxes:
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+        cv2.putText(frame, label, (x1, max(20,y1-5)), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
 
 start_time = time.perf_counter()
 
-model = YOLO(MODEL_PATH)
-cap = cv2.VideoCapture(INPUT_VIDEO_PATH)
-reader = easyocr.Reader(['en','sv']) # other languages can be added as well.
+face_model = YOLO(FACE_MODEL_PATH)
+object_model = YOLO(OBJECT_MODEL_PATH)
 
+cap = cv2.VideoCapture(INPUT_VIDEO_PATH)
 if not cap.isOpened():
     raise RuntimeError(f"Could not open video {INPUT_VIDEO_PATH}")
 
@@ -205,8 +223,6 @@ debug_out = cv2.VideoWriter(DEBUG_OUTPUT_VIDEO_PATH,fourcc,fps,(frame_width, fra
 # -----------------
 # main processing loop
 # -----------------
-last_ocr_boxes=[]
-last_ocr_frame = 0
 
 tracked_boxes=[]
 frame_count = 0
@@ -218,22 +234,13 @@ while True:
 
     frame_count += 1
 
-    face_results = run_face_detection(frame, model, FACE_CONFIDENCE_THRESHOLD)
-
-
+    face_results = run_face_detection(frame, face_model, FACE_CONFIDENCE_THRESHOLD)
+    object_results = run_object_detection(frame, object_model, OBJECT_CONFIDENCE_THRESHOLD)
     current_face_boxes = get_padded_face_boxes(face_results, frame_width, frame_height)
-
-    if frame_count % OCR_EVERY_N_FRAMES == 0:
-        current_ocr_boxes = get_padded_ocr_boxes(frame, reader, frame_width, frame_height)
-        last_ocr_boxes = current_ocr_boxes
-        last_ocr_frame = frame_count
-    elif frame_count - last_ocr_frame <= OCR_HOLD_FRAMES:
-        current_ocr_boxes = last_ocr_boxes
-    else:
-        current_ocr_boxes = []
-
+    current_object_boxes = get_padded_object_boxes(object_results, frame_width, frame_height)
 
     debug_frame = face_results.plot()
+    draw_boxes(debug_frame, current_object_boxes, (255, 0, 0), "Object")
 
     tracked_boxes = track_faces(
         current_face_boxes,
@@ -242,7 +249,7 @@ while True:
         FACE_HOLD_FRAMES
     )
     boxes_to_blur = [track["box"] for track in tracked_boxes]
-    boxes_to_blur.extend(current_ocr_boxes)
+    boxes_to_blur += current_object_boxes
     blur_boxes(frame, boxes_to_blur)
 
     out.write(frame)
@@ -251,8 +258,8 @@ while True:
     if frame_count % 30 == 0:
         print(f"Processed {frame_count} frames")
 
-    if frame_count >= 300:
-        print("Reached 300 frames, stopping early for testing")
+    if frame_count >= 600:
+        print("Reached 600 frames, stopping early for testing")
         break
 
 cap.release()
