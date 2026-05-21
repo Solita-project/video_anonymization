@@ -1,211 +1,109 @@
-# This script:
-# 1. Loads final_transcript.json
-# 2. Extracts cleaned speaker text
-# 3. Loads Chatterbox TTS model
-# 4. Generates speech audio
-# 5. Saves clean_audio.wav
+# Gets final_transcript.json (start, end, text, speaker_id)
+# Gets voices/*.wav files and gives them to the speaker id's
+# Loads Chatterbox TTS model
+# Generates speech audio
+# Saves clean_audio.wav
 
-
-from pathlib import Path
 import json
+from pathlib import Path
 
 import torch
 import torchaudio as ta
-
 from chatterbox.tts import ChatterboxTTS
 
+BASE_DIR = Path(__file__).resolve().parent.parent[1]
 
-# Resolve project root automatically
-ROOT_DIR = Path(__file__).resolve().parent.parent
+FINAL_TRANSCRIPT_FILE = BASE_DIR / "output" / "final_transcript.json"
+VOICES_DIR = BASE_DIR / "voices"
+OUTPUT_FILE = BASE_DIR / "output" / "clean_audio.wav"
+SEGMENTS_DIR = BASE_DIR / "output" / "tts_segments"
 
+SEGMENTS_DIR.mkdir(parents=True, exist_ok=True)
 
-# Input/output paths
-FINAL_TRANSCRIPT_FILE = (
-    ROOT_DIR
-    / "data"
-    / "output"
-    / "final_transcript.json"
-)
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+model = ChatterboxTTS.from_pretrained(device=DEVICE)
 
-VOICE_FILE = (
-    ROOT_DIR
-    / "voices"
-    / "speaker.wav"
-)
+# checking if voices directory exists
+def get_voice():
+    voices = sorted(VOICES_DIR.glob("*.wav"))
+    if not voices:
+        raise FileNotFoundError(f"No voice files found in {VOICES_DIR}")
+    return voices
 
-OUTPUT_FILE = (
-    ROOT_DIR
-    / "data"
-    / "output"
-    / "clean_audio.wav"
-)
+# mapping speakers to voices
+def voice_map(segments, voices):
+    speaker = sorted(set(seg.get("speaker", "unknown") for seg in segments))
 
+    speaker_voice = {}
+    for index, speaker in enumerate(speaker):
+        voice = voices[index % len(voices)]
+        speaker_voice[speaker] = voice
 
-def get_device():
-    """
-    Automatically use GPU if available.
-    Otherwise fallback to CPU.
-    """
+    return speaker_voice
 
-    return (
-        "cuda"
-        if torch.cuda.is_available()
-        else "cpu"
-    )
-
-
-def load_transcript():
-    """
-    Load transcript JSON.
-    """
-
-    if not FINAL_TRANSCRIPT_FILE.exists():
-
-        raise FileNotFoundError(
-            f"Missing:\n{FINAL_TRANSCRIPT_FILE}"
-        )
-
-    with open(
-        FINAL_TRANSCRIPT_FILE,
-        "r",
-        encoding="utf-8"
-    ) as f:
-
-        return json.load(f)
-
-
-def build_text(data):
-    """
-    Combine transcript segments
-    into one text block.
-    """
-
-    text_parts = []
-
-    for segment in data.get(
-        "segments",
-        []
-    ):
-
-        text = (
-            segment.get(
-                "text",
-                ""
-            )
-            .strip()
-        )
-
-        if text:
-
-            text_parts.append(
-                text
-            )
-
-    return " ".join(
-        text_parts
-    )
-
-
-def generate_audio():
-
-    device = get_device()
-
-    print(
-        f"\nUsing device: {device}"
-    )
-
-    # Verify voice sample exists
-    if not VOICE_FILE.exists():
-
-        raise FileNotFoundError(
-            f"Missing voice file:\n{VOICE_FILE}"
-        )
-
-    # Create output directory
-    OUTPUT_FILE.parent.mkdir(
-        parents=True,
-        exist_ok=True
-    )
-
-    print(
-        "Loading transcript..."
-    )
-
-    data = load_transcript()
-
-    print(
-        "Preparing text..."
-    )
-
-    text = build_text(
-        data
-    )
+def gen_seg(segment, voice_path):
+    text = segment.get("text", "").strip()
+    segment_id =segment["segment_id"]
 
     if not text:
+        return None
+    
+    output_path = SEGMENTS_DIR / f"{segment_id}.wav"
 
-        raise ValueError(
-            "No text found in transcript"
-        )
-
-    try:
-
-        print(
-            "Loading TTS model..."
-        )
-
-        model = (
-            ChatterboxTTS
-            .from_pretrained(
-                "Finnish-NLP/Chatterbox-Finnish",
-                device=device
-            )
-        )
-
-        print(
-            "Generating speech..."
-        )
-
-        wav = model.generate(
-
-            text,
-
-            audio_prompt_path=
-            str(VOICE_FILE)
-
-        )
-
-    except Exception as e:
-
-        raise RuntimeError(
-            f"TTS generation failed:\n{e}"
-        )
-
-    # Ensure waveform has channel dimension
-    if wav.dim() == 1:
-
-        wav = wav.unsqueeze(
-            0
-        )
-
-    print(
-        "Saving audio..."
-    )
-
-    ta.save(
-
-        str(OUTPUT_FILE),
-
-        wav.cpu(),
-
-        model.sr
+    wav = model.generate(
+        text,
+        audio_prompt_path=str(voice_path)
 
     )
+    ta.save(str(output_path), wav, model.sr)
+    return output_path
 
-    print(
-        f"\nAudio saved:\n"
-        f"{OUTPUT_FILE}"
-    )
+def concatenate_audio(segment_files):
+    waves = []
+    for file in segment_files:
+        wav, sr = ta.load(str(file))
 
+        if sr != model.sr:
+            wav = ta.functional.resample(wav, sr, model.sr)
+        waves.append(wav)
+
+        if not waves:
+            raise ValueError("No audio segments to concatenate")
+        
+        final_wav = torch.cat(waves, dim=1)
+        ta.save(str(OUTPUT_FILE), final_wav, model.sr)
+        print(f"Final audio saved to {OUTPUT_FILE}")
+
+# main function
+def main():
+    with open(FINAL_TRANSCRIPT_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    segments = data["segments"]
+
+    voices = get_voice()
+    speaker_voice = voice_map(segments, voices)
+
+    print(f"Speaker to voice mapping: {speaker_voice}")
+    for speaker, voice in speaker_voice.items():
+        print(f"Speaker: {speaker}, Voice: {voice}")
+
+    files = []
+
+    for segment in segments:
+        speaker = segment.get("speaker", "unknown")
+        voice = speaker_voice.get(speaker)
+
+        if voice is None:
+            voice = voices[0]
+        print(f"Generating audio for speaker: {speaker} using voice: {voice}")
+        
+        output_path = gen_seg(segment, voice)
+        if output_path:
+            files.append(output_path)
+
+        concatenate_audio(files)
+        print(f"Audio generated in {OUTPUT_FILE}.")
 
 if __name__ == "__main__":
-    generate_audio()
+    main()    

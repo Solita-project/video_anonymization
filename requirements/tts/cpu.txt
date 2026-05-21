@@ -1,5 +1,6 @@
-piper-tts
-chatterbox
-numpy
+chatterbox-tts
+torch
+torchaudio
 soundfile
+numpy
 python-dotenv
