@@ -1,58 +1,109 @@
-# Gets clean_transcript.json
-# Gets SPEAKER_ID.json
-# Uses tts to create the new audio.wav file
-# > final_transcript
+# Gets final_transcript.json (start, end, text, speaker_id)
+# Gets voices/*.wav files and gives them to the speaker id's
+# Loads Chatterbox TTS model
+# Generates speech audio
+# Saves clean_audio.wav
 
-import os
 import json
+from pathlib import Path
+
 import torch
 import torchaudio as ta
-
 from chatterbox.tts import ChatterboxTTS
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = Path(__file__).resolve().parent.parent[1]
 
+FINAL_TRANSCRIPT_FILE = BASE_DIR / "output" / "final_transcript.json"
+VOICES_DIR = BASE_DIR / "voices"
+OUTPUT_FILE = BASE_DIR / "output" / "clean_audio.wav"
+SEGMENTS_DIR = BASE_DIR / "output" / "tts_segments"
 
-FINAL_TRANSCRIPT_FILE = os.path.join(BASE_DIR, "output", "final_transcript.json")
-VOICES_FILE = os.path.join(BASE_DIR, "voices", -A .wav)
-OUTPUT_FILE = os.path.join(BASE_DIR, "output", "clean_audio.wav")
+SEGMENTS_DIR.mkdir(parents=True, exist_ok=True)
 
-model = ChatterboxTTS.from_pretrained(
-    "Finnish-NLP/Chatterbox-Finnish",
-    device="cpu"
-)
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+model = ChatterboxTTS.from_pretrained(device=DEVICE)
 
-with open(TRANSCRIPT_FILE, "r", encoding="utf-8") as f:
-    data = json.load(f)
+# checking if voices directory exists
+def get_voice():
+    voices = sorted(VOICES_DIR.glob("*.wav"))
+    if not voices:
+        raise FileNotFoundError(f"No voice files found in {VOICES_DIR}")
+    return voices
 
-segments = data["segments"]
+# mapping speakers to voices
+def voice_map(segments, voices):
+    speaker = sorted(set(seg.get("speaker", "unknown") for seg in segments))
 
-text = " ".join(
-    segments["text"].strip()
-    for segment in data["segments"]:
-        text = segment["text"]
-        start = segment["start"]
-        end = segment["end"]
+    speaker_voice = {}
+    for index, speaker in enumerate(speaker):
+        voice = voices[index % len(voices)]
+        speaker_voice[speaker] = voice
+
+    return speaker_voice
+
+def gen_seg(segment, voice_path):
+    text = segment.get("text", "").strip()
+    segment_id =segment["segment_id"]
+
+    if not text:
+        return None
+    
+    output_path = SEGMENTS_DIR / f"{segment_id}.wav"
+
+    wav = model.generate(
+        text,
+        audio_prompt_path=str(voice_path)
+
+    )
+    ta.save(str(output_path), wav, model.sr)
+    return output_path
+
+def concatenate_audio(segment_files):
+    waves = []
+    for file in segment_files:
+        wav, sr = ta.load(str(file))
+
+        if sr != model.sr:
+            wav = ta.functional.resample(wav, sr, model.sr)
+        waves.append(wav)
+
+        if not waves:
+            raise ValueError("No audio segments to concatenate")
+        
+        final_wav = torch.cat(waves, dim=1)
+        ta.save(str(OUTPUT_FILE), final_wav, model.sr)
+        print(f"Final audio saved to {OUTPUT_FILE}")
+
+# main function
+def main():
+    with open(FINAL_TRANSCRIPT_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    segments = data["segments"]
+
+    voices = get_voice()
+    speaker_voice = voice_map(segments, voices)
+
+    print(f"Speaker to voice mapping: {speaker_voice}")
+    for speaker, voice in speaker_voice.items():
+        print(f"Speaker: {speaker}, Voice: {voice}")
+
+    files = []
+
+    for segment in segments:
         speaker = segment.get("speaker", "unknown")
-)
+        voice = speaker_voice.get(speaker)
 
-# Take text from the final transcript
-# Take speaker id from diarization
-# Seperate speakers by speaker id
-wav = model.generate(
-    text,
-    audio_prompt_path=VOICES_FILE
-)
+        if voice is None:
+            voice = voices[0]
+        print(f"Generating audio for speaker: {speaker} using voice: {voice}")
+        
+        output_path = gen_seg(segment, voice)
+        if output_path:
+            files.append(output_path)
 
-if wav.dim() == 1
-    wav = wav.unsqueeze(0)
+        concatenate_audio(files)
+        print(f"Audio generated in {OUTPUT_FILE}.")
 
-os.makedirs(os.path.dirname(OUTPUT_FILE), exit_ok=True)
-
-ta.save(
-    OUTPUT_FILE,
-    wav.cpu(),
-    model.sr
-)
-
-print(f"Saved audio to {OUTPUT_FILE}")
+if __name__ == "__main__":
+    main()    

@@ -35,6 +35,7 @@ def load_diarization(diarization):
     raise ValueError("could not read diarization.json")
 
 
+
 def speaker_word(start, end, diarization):
     best_speaker = "unknown"
     best_overlap = 0.0
@@ -91,13 +92,13 @@ def merge():
     current = None
 
     for seg in transcript["segments"]:
-        words = segment.get("words", [])
+        words = seg.get("words", [])
 
         if not words:
             current = flush_current(new_segments, current)
 
-            start = float(segment["start"])
-            end = float(segment["end"])
+            start = float(seg["start"])
+            end = float(seg["end"])
             speaker = speaker_word(start, end, diar)
 
             new_segments.append({
@@ -131,7 +132,7 @@ def merge():
 
             start = float(start)
             end = float(end)
-            speaker = speaker_word(start, end, diarization)
+            speaker = speaker_word(start, end, diar)
 
             if current is None:
                 current = {
@@ -166,12 +167,13 @@ def merge():
         }
 
 
-        os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
 
-        with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-            json.dump(output, f, ensure_ascii=False, indent=2)
+    os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
 
-        print(f"Final transcript is in: {OUTPUT_FILE}")
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+        json.dump(output, f, ensure_ascii=False, indent=2)
+
+    print(f"Final transcript is in: {OUTPUT_FILE}")
 
 if __name__ == "__main__":
     merge()

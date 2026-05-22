@@ -1,36 +1,109 @@
+# Main pipeline controller
+#
+# This script:
+# 1. Detects available hardware
+# 2. Runs all processing steps
+# 3. Executes steps in correct order
+
+
+import subprocess
 import torch
 
-from src.audio import extract_audio
-from src.diarization import diarize
-from src.transcript import transcribe
+
+def run_step(name, script):
+    """
+    Execute a pipeline step
+    and stop if it fails.
+    """
+
+    print(
+        f"\n{name}"
+    )
+
+    result = subprocess.run(
+        ["python", script]
+    )
+
+    if result.returncode != 0:
+
+        raise RuntimeError(
+            f"Failed:\n{script}"
+        )
 
 
 def main():
 
-    # Entry point of the video anonymization pipeline
-    print("VIDEO ANONYMIZATION PIPELINE")
+    print(
+        "\nVIDEO ANONYMIZATION PIPELINE"
+    )
 
-    # Checks available hardware to determine whether GPU acceleration can be used
+    print(
+        "============================"
+    )
+
+    # Display hardware information
     if torch.cuda.is_available():
-        print("GPU detected -> using CUDA")
+
+        print(
+            f"GPU detected:"
+        )
+
+        print(
+            torch.cuda.get_device_name(
+                0
+            )
+        )
+
     else:
-        print("No GPU -> using CPU")
 
-    # Step 1: Audio extraction from the input video file
-    print("\n[1/3] Extract audio")
-    extract_audio()
+        print(
+            "CPU mode"
+        )
 
-    # Step 2: Speaker diarization to segment audio by speaker identity and time
-    print("\n[2/3] Speaker diarization")
-    diarize()
+    # Step 1
+    run_step(
+        "[1/6] Extract audio",
+        "src/audio.py"
+    )
 
-     # Step 3: Speech transcription using Whisper-based model
-    print("\n[3/3] Whisper transcription")
-    transcribe()
+    # Step 2
+    run_step(
+        "[2/6] Transcription",
+        "run/run_whisperx.py"
+    )
 
-    # Indicates that the full pipeline has completed successfully
-    print("\nDONE")
+    # Step 3
+    run_step(
+        "[3/6] Speaker diarization",
+        "run/run_speaker.py"
+    )
+
+    # Step 4
+    run_step(
+        "[4/6] Merge transcript",
+        "src/merged.py"
+    )
+
+    # Step 5
+    run_step(
+        "[5/6] Generate TTS",
+        "run/run_tts.py"
+    )
+
+    # Step 6
+    run_step(
+        "[6/6] Video processing",
+        "run/run_video.py"
+    )
+
+    print(
+        "\nPipeline complete"
+    )
 
 
 if __name__ == "__main__":
     main()
+
+# TEST:
+# source venvs/core/Scripts/activate
+# python src/main.py
