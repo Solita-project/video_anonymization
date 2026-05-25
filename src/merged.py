@@ -7,9 +7,9 @@ import json
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-TRANSCRIPT_FILE = os.path.join(BASE_DIR, "output", "clean_transcript.json")
-DIARIZATION_FILE = os.path.join(BASE_DIR, "output", "diarization.json")
-OUTPUT_FILE = os.path.join(BASE_DIR, "output", "final_transcript.json")
+TRANSCRIPT_FILE = os.path.join(BASE_DIR, "data", "output", "transcription.json")
+DIARIZATION_FILE = os.path.join(BASE_DIR, "data", "output", "diarization.json")
+OUTPUT_FILE = os.path.join(BASE_DIR, "data", "output", "final_transcript.json")
 
 # function for cleaning text
 def clean_text(words):
