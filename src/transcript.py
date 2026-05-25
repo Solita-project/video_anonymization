@@ -1,19 +1,14 @@
-# This script:
-# 1. Loads an extracted WAV audio file
-# 2. Uses WhisperX to transcribe speech
-# 3. Aligns spoken words with precise timestamps
-# 4. Saves structured transcription output as JSON
-
-
 from pathlib import Path
 import json
+import os
+import shutil
 
 import torch
 import whisperx
 
 
-# Resolve project root directory automatically
-# Makes file paths work on Windows, macOS and Linux
+# Resolve project root:
+# src/transcript.py -> project root
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -33,11 +28,72 @@ OUTPUT_FILE = (
 )
 
 
+# Project-local tools directory.
+# On Windows this should contain:
+#     tools/ffmpeg.exe
+TOOLS_DIR = ROOT_DIR / "tools"
+
+
 # WhisperX configuration
 MODEL_NAME = "turbo"
 
 # Finnish language
 LANGUAGE = "fi"
+
+# Lower values use less VRAM.
+# Increase this later if the GPU has enough memory.
+BATCH_SIZE = 2
+
+
+def add_tools_to_path():
+    """
+    Add the project-local tools directory to PATH.
+
+    WhisperX calls ffmpeg internally when loading audio.
+    This makes tools/ffmpeg.exe discoverable without requiring
+    a global FFmpeg installation.
+    """
+
+    if not TOOLS_DIR.exists():
+        return
+
+    current_path = os.environ.get(
+        "PATH",
+        "",
+    )
+
+    os.environ["PATH"] = (
+        str(TOOLS_DIR)
+        + os.pathsep
+        + current_path
+    )
+
+
+def verify_ffmpeg():
+    """
+    Verify that ffmpeg is available.
+
+    Raises:
+        FileNotFoundError: If ffmpeg cannot be found.
+    """
+
+    add_tools_to_path()
+
+    ffmpeg_path = shutil.which(
+        "ffmpeg"
+    )
+
+    if not ffmpeg_path:
+        raise FileNotFoundError(
+            "ffmpeg was not found.\n\n"
+            "Expected one of these:\n"
+            f"  {TOOLS_DIR / 'ffmpeg.exe'}\n"
+            "  or ffmpeg available globally in PATH"
+        )
+
+    print(
+        f"ffmpeg found: {ffmpeg_path}"
+    )
 
 
 def get_device():
@@ -45,19 +101,18 @@ def get_device():
     Automatically choose GPU when available.
 
     Returns:
-        str: "cuda" or "cpu"
+        str: 'cuda' if CUDA is available, otherwise 'cpu'.
     """
 
-    return (
-        "cuda"
-        if torch.cuda.is_available()
-        else "cpu"
-    )
+    if torch.cuda.is_available():
+        return "cuda"
+
+    return "cpu"
 
 
 def get_compute_type(device):
     """
-    Select suitable compute type based on device.
+    Select a suitable compute type.
 
     GPU:
         float16
@@ -66,10 +121,10 @@ def get_compute_type(device):
         int8
 
     Args:
-        device (str)
+        device (str): 'cuda' or 'cpu'.
 
     Returns:
-        str
+        str: WhisperX compute type.
     """
 
     if device == "cuda":
@@ -78,30 +133,14 @@ def get_compute_type(device):
     return "int8"
 
 
-def transcribe():
+def print_system_info(device, compute_type):
     """
-    Main transcription pipeline.
+    Print hardware and WhisperX runtime information.
+
+    Args:
+        device (str): Selected device.
+        compute_type (str): Selected compute type.
     """
-
-    # Verify audio file exists before processing starts
-    if not AUDIO_FILE.exists():
-
-        raise FileNotFoundError(
-            f"Audio file not found:\n{AUDIO_FILE}"
-        )
-
-    # Create output folder automatically
-    OUTPUT_FILE.parent.mkdir(
-        parents=True,
-        exist_ok=True
-    )
-
-    # Detect available hardware
-    device = get_device()
-
-    compute_type = get_compute_type(
-        device
-    )
 
     print(
         "\n===== SYSTEM INFO ====="
@@ -130,94 +169,64 @@ def transcribe():
     )
 
     print(
-        f"Compute type: "
-        f"{compute_type}"
+        f"Compute type: {compute_type}"
     )
 
     print(
         "=======================\n"
     )
 
-    try:
 
-        # Load WhisperX speech model
-        print(
-            "Loading WhisperX model..."
+def load_audio():
+    """
+    Load audio with WhisperX.
+
+    Returns:
+        Any: Audio object returned by whisperx.load_audio().
+    """
+
+    if not AUDIO_FILE.exists():
+
+        raise FileNotFoundError(
+            f"Audio file not found:\n{AUDIO_FILE}"
         )
 
-        model = whisperx.load_model(
-            MODEL_NAME,
-            device,
-            compute_type=compute_type,
-            language=LANGUAGE
-        )
+    verify_ffmpeg()
 
-        # Load audio into memory
-        print(
-            "Loading audio..."
-        )
+    print(
+        "Loading audio..."
+    )
 
-        audio = whisperx.load_audio(
-            str(AUDIO_FILE)
-        )
+    return whisperx.load_audio(
+        str(AUDIO_FILE)
+    )
 
-        # Perform initial transcription
-        print(
-            "Starting transcription..."
-        )
 
-        result = model.transcribe(
-            audio,
-            batch_size=2
-        )
+def save_transcription(result):
+    """
+    Save WhisperX transcription result as a simplified JSON file.
 
-        # Load alignment model
-        # Used to improve timestamp accuracy
-        print(
-            "Loading alignment model..."
-        )
+    Args:
+        result (dict): WhisperX aligned transcription result.
+    """
 
-        model_a, metadata = (
-            whisperx.load_align_model(
-                language_code=result[
-                    "language"
-                ],
-                device=device
-            )
-        )
+    OUTPUT_FILE.parent.mkdir(
+        parents=True,
+        exist_ok=True
+    )
 
-        # Align words precisely
-        print(
-            "Aligning words..."
-        )
-
-        result = whisperx.align(
-            result["segments"],
-            model_a,
-            metadata,
-            audio,
-            device,
-            return_char_alignments=False
-        )
-
-    except Exception as e:
-
-        raise RuntimeError(
-            f"Transcription failed:\n{e}"
-        )
-
-    # Final JSON structure
     transcription = []
 
-    # Iterate through each transcription segment
-    for segment in result["segments"]:
+    for segment in result.get(
+        "segments",
+        [],
+    ):
 
         words = []
 
-        # Extract word-level timestamps
         for word in segment.get(
             "words",
-            []
+            [],
         ):
 
             if (
@@ -228,56 +237,61 @@ def transcribe():
                 words.append({
 
                     "word":
-                    word["word"].strip(),
+                    word.get(
+                        "word",
+                        "",
+                    ).strip(),
 
                     "start":
                     round(
-                        word["start"],
-                        2
+                        float(word["start"]),
+                        2,
                     ),
 
                     "end":
                     round(
-                        word["end"],
-                        2
-                    )
+                        float(word["end"]),
+                        2,
+                    ),
 
                 })
 
-        # Store complete segment structure
         transcription.append({
 
             "segment_start":
             round(
-                segment["start"],
-                2
+                float(segment["start"]),
+                2,
             ),
 
             "segment_end":
             round(
-                segment["end"],
-                2
+                float(segment["end"]),
+                2,
             ),
 
             "text":
-            segment["text"].strip(),
+            segment.get(
+                "text",
+                "",
+            ).strip(),
 
             "words":
-            words
+            words,
+
         })
 
-    # Save formatted JSON output
     with open(
         OUTPUT_FILE,
         "w",
-        encoding="utf-8"
+        encoding="utf-8",
     ) as f:
 
         json.dump(
             transcription,
             f,
             indent=4,
-            ensure_ascii=False
+            ensure_ascii=False,
         )
 
     print(
@@ -288,9 +302,88 @@ def transcribe():
         f"Saved to:\n{OUTPUT_FILE}"
     )
 
-# TEST!
-if torch.cuda.is_available():
-    torch.cuda.empty_cache()
+
+def transcribe():
+    """
+    Run the complete WhisperX transcription and alignment pipeline.
+    """
+
+    device = get_device()
+
+    compute_type = get_compute_type(
+        device
+    )
+
+    print_system_info(
+        device,
+        compute_type,
+    )
+
+    try:
+
+        print(
+            "Loading WhisperX model..."
+        )
+
+        model = whisperx.load_model(
+            MODEL_NAME,
+            device,
+            compute_type=compute_type,
+            language=LANGUAGE,
+        )
+
+        audio = load_audio()
+
+        print(
+            "Starting transcription..."
+        )
+
+        result = model.transcribe(
+            audio,
+            batch_size=BATCH_SIZE,
+        )
+
+        print(
+            "Loading alignment model..."
+        )
+
+        model_a, metadata = whisperx.load_align_model(
+            language_code=result[
+                "language"
+            ],
+            device=device,
+        )
+
+        print(
+            "Aligning words..."
+        )
+
+        result = whisperx.align(
+            result[
+                "segments"
+            ],
+            model_a,
+            metadata,
+            audio,
+            device,
+            return_char_alignments=False,
+        )
+
+    except Exception as e:
+
+        raise RuntimeError(
+            f"Transcription failed:\n{e}"
+        )
+
+    save_transcription(
+        result
+    )
+
+    if torch.cuda.is_available():
+
+        torch.cuda.empty_cache()
+
 
 if __name__ == "__main__":
+
     transcribe()

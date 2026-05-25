@@ -1,5 +1,5 @@
-piper-tts
-chatterbox
-numpy
-soundfile
-python-dotenv
+# Text-to-speech dependencies.
+# Do NOT put torch, torchvision or torchaudio here.
+# The starter scripts install the full PyTorch stack separately.
+
+chatterbox-tts

@@ -1,26 +1,29 @@
+# Runs video processing in the video virtual environment.
+# Usage:
+# python run/run_video.py
+
+from pathlib import Path
+import os
 import subprocess
-import torch
-import platform
 
-gpu=torch.cuda.is_available()
 
-if platform.system()=="Windows":
+ROOT_DIR = Path(__file__).resolve().parent.parent
+SCRIPT = ROOT_DIR / "src" / "video.py"
 
-    python_path=(
-        "venvs/video_gpu/Scripts/python.exe"
-        if gpu
-        else "venvs/video_cpu/Scripts/python.exe"
-    )
 
+# Select video venv Python
+if os.name == "nt":
+    PYTHON = ROOT_DIR / "venvs" / "video" / "Scripts" / "python.exe"
 else:
+    PYTHON = ROOT_DIR / "venvs" / "video" / "bin" / "python"
 
-    python_path=(
-        "venvs/video_gpu/bin/python"
-        if gpu
-        else "venvs/video_cpu/bin/python"
-    )
 
-subprocess.run([
-    python_path,
-    "src/video.py"
-])
+# Run video script
+subprocess.run(
+    [
+        str(PYTHON),
+        str(SCRIPT),
+    ],
+    cwd=ROOT_DIR,
+    check=True,
+)

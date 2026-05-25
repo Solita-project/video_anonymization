@@ -1,4 +1,6 @@
+# Video processing dependencies.
+# Do NOT put torch, torchvision or torchaudio here.
+# The starter scripts install the full CUDA PyTorch stack separately.
+
 ultralytics
 opencv-python
-numpy
-python-dotenv
