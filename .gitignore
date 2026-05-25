@@ -20,3 +20,6 @@ Thumbs.db
 
 # Pyannote token
 *.env
+
+# Yolo model weights
+models/*.pt
