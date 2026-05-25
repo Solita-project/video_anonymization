@@ -1,91 +1,62 @@
-from pathlib import Path
-import subprocess
-import os
-import shutil
+# Extracts audio from data/input/video.mp4
+# Saves the extracted audio to data/input/audio.wav
+# Usage:
+# source venvs/core/Scripts/activate
+# python src/audio.py
 
-# Project root (src/audio.py -> project root directory)
+from pathlib import Path
+import shutil
+import subprocess
+
+
+# Find project root
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
-# Input and output file paths
+# Define input video path
 VIDEO_PATH = ROOT_DIR / "data" / "input" / "video.mp4"
+
+# Define output audio path
 AUDIO_PATH = ROOT_DIR / "data" / "input" / "audio.wav"
 
-# Local bundled ffmpeg (recommended for portability across machines)
+# Define local FFmpeg path
 LOCAL_FFMPEG = ROOT_DIR / "tools" / "ffmpeg.exe"
 
 
-def resolve_ffmpeg():
-    """
-    Resolves ffmpeg executable path in a portable way.
-
-    Priority order:
-    1. Project-local ffmpeg (tools/ffmpeg.exe)
-    2. System-installed ffmpeg (PATH)
-    """
-
-    # Check if ffmpeg exists inside the project
+def get_ffmpeg():
+    # Use local ffmpeg.exe if it exists
     if LOCAL_FFMPEG.exists():
         return str(LOCAL_FFMPEG)
 
-    # Fallback to system PATH ffmpeg
-    system_ffmpeg = shutil.which("ffmpeg")
-
-    if system_ffmpeg:
-        return system_ffmpeg
-
-    # If nothing is found, stop execution with clear error
-    raise RuntimeError(
-        "ffmpeg not found. Install tools/ffmpeg.exe or add ffmpeg to PATH."
-    )
+    # Otherwise use ffmpeg from system PATH
+    return shutil.which("ffmpeg") or "ffmpeg"
 
 
 def extract_audio():
-    """
-    Extracts mono 16kHz WAV audio from a video file using ffmpeg.
+    # Get FFmpeg command
+    ffmpeg = get_ffmpeg()
 
-    This ensures:
-    - consistent sample rate (16kHz)
-    - mono audio (1 channel)
-    - PCM 16-bit format (compatible with speech models)
-    """
-
-    # Resolve ffmpeg path (portable or system fallback)
-    ffmpeg = resolve_ffmpeg()
-
-    # Ensures the input video exists before processing
-    if not VIDEO_PATH.exists():
-        raise FileNotFoundError(f"Video not found: {VIDEO_PATH}")
-
-    # Ensures output directory exists before writing audio file
+    # Create output folder
     AUDIO_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-    # FFmpeg command for audio extraction
-    cmd = [
+    # Build FFmpeg command
+    command = [
         ffmpeg,
-        "-y",               # overwrite output file if exists
+        "-y",
         "-i", str(VIDEO_PATH),
-        "-vn",             # disable video
-        "-acodec", "pcm_s16le",  # 16-bit PCM WAV
-        "-ar", "16000",    # 16 kHz sample rate (required for ASR models)
-        "-ac", "1",        # mono audio
-        str(AUDIO_PATH)
+        "-vn",
+        "-acodec", "pcm_s16le",
+        "-ar", "16000",
+        "-ac", "1",
+        str(AUDIO_PATH),
     ]
 
-    try:
-        # Execute ffmpeg process
-        subprocess.run(cmd, check=True)
+    # Run FFmpeg
+    subprocess.run(command, check=True)
 
-        # Success message
-        print(f"Audio successfully saved:\n{AUDIO_PATH}")
-
-    except subprocess.CalledProcessError as e:
-        # Handle ffmpeg execution errors
-        raise RuntimeError(f"Audio extraction failed: {e}")
+    # Show output file
+    print(f"Audio saved: {AUDIO_PATH}")
 
 
 if __name__ == "__main__":
+    # Start audio extraction
     extract_audio()
-
-# test:
-# source venvs/core/Scripts/activate
-# python src/audio.py

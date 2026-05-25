@@ -1,15 +1,29 @@
 # > diarization.json
 # > transcript.json
 # = final_transcript.json (start, end, text, speaker_id)
+# Merges WhisperX transcription and Pyannote speaker diarization
+# Saves the final transcript to data/output/final_transcript.json
+# Usage:
+# source venvs/core/Scripts/activate
+# python src/merged.py
+
+from pathlib import Path
+import json
 
 import os
 import json
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Find project root
+ROOT_DIR = Path(__file__).resolve().parent.parent
 
-TRANSCRIPT_FILE = os.path.join(BASE_DIR, "output", "clean_transcript.json")
-DIARIZATION_FILE = os.path.join(BASE_DIR, "output", "diarization.json")
-OUTPUT_FILE = os.path.join(BASE_DIR, "output", "final_transcript.json")
+# Define input transcript path
+TRANSCRIPT_FILE = ROOT_DIR / "data" / "output" / "transcription.json"
+
+# Define input diarization path
+DIARIZATION_FILE = ROOT_DIR / "data" / "output" / "diarization.json"
+
+# Define output final transcript path
+OUTPUT_FILE = ROOT_DIR / "data" / "output" / "final_transcript.json"
 
 # function for cleaning text
 def clean_text(words):
@@ -91,14 +105,14 @@ def merge():
     new_segments = []
     current = None
 
-    for seg in transcript["segments"]:
+    for seg in transcript:
         words = seg.get("words", [])
 
         if not words:
             current = flush_current(new_segments, current)
 
-            start = float(seg["start"])
-            end = float(seg["end"])
+            start = float(seg["segment_start"])
+            end = float(seg["segment_end"])
             speaker = speaker_word(start, end, diar)
 
             new_segments.append({
@@ -158,15 +172,13 @@ def merge():
                     "end": end,
                     "words": [word_text]
                 }
+
         current = flush_current(new_segments, current)
 
-        output = {
-            "source": transcript.get("source"),
-            "language": transcript.get("language", "fi"),
-            "segments": new_segments,
-        }
-
-
+    output = {
+        "language": "fi",
+        "segments": new_segments,
+    }
 
     os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
 
