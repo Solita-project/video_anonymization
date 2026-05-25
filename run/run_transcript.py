@@ -1,26 +1,36 @@
+# Runs WhisperX transcription in the transcript virtual environment.
+# Usage:
+# python run/run_transcript.py
+
+from pathlib import Path
+import os
 import subprocess
-import torch
-import platform
 
-gpu=torch.cuda.is_available()
 
-if platform.system()=="Windows":
+ROOT_DIR = Path(__file__).resolve().parent.parent
+SCRIPT = ROOT_DIR / "src" / "transcript.py"
+TOOLS_DIR = ROOT_DIR / "tools"
 
-    python_path=(
-        "venvs/whisperx_gpu/Scripts/python.exe"
-        if gpu
-        else "venvs/whisperx_cpu/Scripts/python.exe"
-    )
 
+# Select transcript venv Python
+if os.name == "nt":
+    PYTHON = ROOT_DIR / "venvs" / "transcript" / "Scripts" / "python.exe"
 else:
+    PYTHON = ROOT_DIR / "venvs" / "transcript" / "bin" / "python"
 
-    python_path=(
-        "venvs/whisperx_gpu/bin/python"
-        if gpu
-        else "venvs/whisperx_cpu/bin/python"
-    )
 
-subprocess.run([
-    python_path,
-    "src/transcript.py"
-])
+# Add tools folder to PATH so WhisperX can find ffmpeg
+env = os.environ.copy()
+env["PATH"] = str(TOOLS_DIR) + os.pathsep + env.get("PATH", "")
+
+
+# Run transcript script
+subprocess.run(
+    [
+        str(PYTHON),
+        str(SCRIPT),
+    ],
+    cwd=ROOT_DIR,
+    env=env,
+    check=True,
+)

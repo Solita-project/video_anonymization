@@ -1,4 +1,13 @@
+# WhisperX transcription + transcript PII redaction dependencies.
+# Do NOT put torch, torchvision or torchaudio here.
+# The starter scripts install the full CUDA PyTorch stack separately.
+
 whisperx
-ffmpeg-python
-numpy
-python-dotenv
+
+# Optional / planned PII anonymization support
+presidio-analyzer
+presidio-anonymizer
+spacy
+regex
+phonenumbers
+python-dateutil

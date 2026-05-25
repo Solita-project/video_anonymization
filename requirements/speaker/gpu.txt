@@ -1,2 +1,7 @@
-pyannote.audio
+# Speaker diarization dependencies.
+# Do NOT put torch, torchvision or torchaudio here.
+# The starter scripts install the full CUDA PyTorch stack separately.
+
 python-dotenv
+pyannote.audio
+numpy

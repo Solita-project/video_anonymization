@@ -1,26 +1,29 @@
+# Runs speaker diarization in the speaker virtual environment.
+# Usage:
+# python run/run_speaker.py
+
+from pathlib import Path
+import os
 import subprocess
-import torch
-import platform
 
-gpu=torch.cuda.is_available()
 
-if platform.system()=="Windows":
+ROOT_DIR = Path(__file__).resolve().parent.parent
+SCRIPT = ROOT_DIR / "src" / "diarization.py"
 
-    python_path=(
-        "venvs/speaker_gpu/Scripts/python.exe"
-        if gpu
-        else "venvs/speaker_cpu/Scripts/python.exe"
-    )
 
+# Select speaker venv Python
+if os.name == "nt":
+    PYTHON = ROOT_DIR / "venvs" / "speaker" / "Scripts" / "python.exe"
 else:
+    PYTHON = ROOT_DIR / "venvs" / "speaker" / "bin" / "python"
 
-    python_path=(
-        "venvs/speaker_gpu/bin/python"
-        if gpu
-        else "venvs/speaker_cpu/bin/python"
-    )
 
-subprocess.run([
-    python_path,
-    "src/diarization.py"
-])
+# Run diarization script
+subprocess.run(
+    [
+        str(PYTHON),
+        str(SCRIPT),
+    ],
+    cwd=ROOT_DIR,
+    check=True,
+)

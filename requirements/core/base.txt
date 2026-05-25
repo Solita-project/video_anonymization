@@ -1,6 +1,8 @@
+# Core pipeline utilities.
+# Do NOT put torch, torchvision or torchaudio here.
+# The starter scripts install the required torch package separately.
+
 python-dotenv
 pydantic
 numpy
 tqdm
-ffmpeg-python
-python-dotenv
