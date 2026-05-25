@@ -27,8 +27,6 @@ def run_step(title, script):
 
 def main():
     # Run all pipeline steps in the correct order
-    print("\nVIDEO ANONYMIZATION PIPELINE")
-
     run_step("[1/6] Extract audio", "src/audio.py")
     run_step("[2/6] Transcription", "run/run_transcript.py")
     run_step("[3/6] Speaker diarization", "run/run_speaker.py")
