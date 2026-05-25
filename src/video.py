@@ -25,7 +25,7 @@ DEBUG_OUTPUT_VIDEO_PATH = f"{INPUT_VIDEO_PATH.split('.')[0]}_debug_boxes.mp4"
 BLUR_KERNEL_SIZE = (99, 99)
 BLUR_SIGMA = 30
 FACE_MODEL_PATH = ROOT_DIR / "models" / "yolov8s-face-lindevs.pt"
-OBJECT_MODEL_PATH = OBJECT_MODEL_PATH = "yolov8s.pt"
+OBJECT_MODEL_PATH = ROOT_DIR / "models" / "yolov8s.pt"
 
 '''
 FACE_MODEL_PATH = "yolov8s-face-lindevs.pt"
