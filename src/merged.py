@@ -17,7 +17,7 @@ import json
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
 # Define input transcript path
-TRANSCRIPT_FILE = ROOT_DIR / "data" / "output" / "transcription.json"
+TRANSCRIPT_FILE = ROOT_DIR / "data" / "output" / "cleaned_transcription.json"
 
 # Define input diarization path
 DIARIZATION_FILE = ROOT_DIR / "data" / "output" / "diarization.json"
