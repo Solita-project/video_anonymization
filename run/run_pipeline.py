@@ -6,6 +6,7 @@
 from pathlib import Path
 import subprocess
 import sys
+import time
 
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -26,6 +27,9 @@ def run_step(title, script):
 
 
 def main():
+    # Start timer
+    start_time = time.perf_counter()
+
     # Run all pipeline steps in the correct order
     run_step("[1/8] Extract audio", "src/audio.py")
     run_step("[2/8] Transcription", "run/run_transcript.py")
@@ -36,7 +40,16 @@ def main():
     run_step("[7/8] Process video", "run/run_video.py")
     run_step("[8/8] Merge audio and video", "src/final_merge.py")
 
+    # Stop timer
+    end_time = time.perf_counter()
+
+    # Calculate total runtime
+    total_seconds = end_time - start_time
+    total_minutes = total_seconds / 60
+
     print("\nPipeline complete")
+    print(f"Total runtime: {total_minutes:.2f} minutes")
+
 
 if __name__ == "__main__":
     main()
