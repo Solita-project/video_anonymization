@@ -27,16 +27,16 @@ def run_step(title, script):
 
 def main():
     # Run all pipeline steps in the correct order
-    run_step("[1/7] Extract audio", "src/audio.py")
-    run_step("[2/7] Transcription", "run/run_transcript.py")
-    run_step("[3/7] Anonymize transcription", "run/run_anonymize.py")
-    run_step("[4/7] Speaker diarization", "run/run_speaker.py")
-    run_step("[5/7] Merge transcript", "src/merged.py")
-    run_step("[6/7] Generate TTS", "run/run_tts.py")
-    run_step("[7/7] Process video", "run/run_video.py")
+    run_step("[1/8] Extract audio", "src/audio.py")
+    run_step("[2/8] Transcription", "run/run_transcript.py")
+    run_step("[3/8] Anonymize transcription", "run/run_anonymize.py")
+    run_step("[4/8] Speaker diarization", "run/run_speaker.py")
+    run_step("[5/8] Merge transcript", "src/merged.py")
+    run_step("[6/8] Generate TTS", "run/run_tts.py")
+    run_step("[7/8] Process video", "run/run_video.py")
+    run_step("[8/8] Merge audio and video", "src/final_merge.py")
 
     print("\nPipeline complete")
-
 
 if __name__ == "__main__":
     main()

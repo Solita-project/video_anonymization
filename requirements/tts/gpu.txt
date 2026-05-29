@@ -3,3 +3,4 @@
 # The starter scripts install the full CUDA PyTorch stack separately.
 
 chatterbox-tts
+soundfile

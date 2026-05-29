@@ -12,38 +12,32 @@ YOLOv8s.pt class names:
 Use: 62: 'tv', 63: 'laptop',67: 'cell phone'73: 'book'
 '''
 
-
 ROOT_DIR = Path(__file__).resolve().parent.parent
 INPUT_VIDEO_PATH = ROOT_DIR / "data" / "input" / "video.mp4"
 OUTPUT_VIDEO_PATH = ROOT_DIR / "data" / "output" / "video_blurred.mp4"
 DEBUG_OUTPUT_VIDEO_PATH = ROOT_DIR / "data" / "output" / "video_debug_boxes.mp4"
-'''
-INPUT_VIDEO_PATH = "hyva_intubointi.mp4"
-OUTPUT_VIDEO_PATH = f"{INPUT_VIDEO_PATH.split('.')[0]}_blurred.mp4"
-DEBUG_OUTPUT_VIDEO_PATH = f"{INPUT_VIDEO_PATH.split('.')[0]}_debug_boxes.mp4"
-'''
+
 BLUR_KERNEL_SIZE = (99, 99)
 BLUR_SIGMA = 30
 FACE_MODEL_PATH = ROOT_DIR / "models" / "yolov8s-face-lindevs.pt"
-OBJECT_MODEL_PATH = ROOT_DIR / "models" / "yolov8s.pt"
+# OBJECT_MODEL_PATH = ROOT_DIR / "models" / "yolov8s.pt"
 
-'''
-FACE_MODEL_PATH = "yolov8s-face-lindevs.pt"
-OBJECT_MODEL_PATH = "yolov8s.pt"
-'''
+# HIGH_RISK_OBJECT_CLASS_NAMES = ['tv', 'laptop', 'cell phone', 'book']
 
-HIGH_RISK_OBJECT_CLASS_NAMES = ['tv', 'laptop', 'cell phone', 'book']
-FACE_CONFIDENCE_THRESHOLD = 0.08
-OBJECT_CONFIDENCE_THRESHOLD = 0.25
-FACE_BOX_PADDING = 0.35
-OBJECT_BOX_PADDING = 0.10
-FACE_HOLD_FRAMES = 15
-IOU_THRESHOLD = 0.30
+FACE_CONFIDENCE_THRESHOLD = 0.03
+# OBJECT_CONFIDENCE_THRESHOLD = 0.25
 
-OBJECT_EVERY_N_FRAMES = 5
-OBJECT_HOLD_FRAMES = 15
+FACE_BOX_PADDING = 0.45
+# OBJECT_BOX_PADDING = 0.10
+
+FACE_HOLD_FRAMES = 45
+IOU_THRESHOLD = 0.15
+
+# OBJECT_EVERY_N_FRAMES = 5
+# OBJECT_HOLD_FRAMES = 15
 
 WRITE_DEBUG_VIDEO = False
+WRITE_BLURRED_VIDEO = True
 
 MAX_FRAMES = None  # Set to None to process entire video
 
@@ -52,17 +46,18 @@ MAX_FRAMES = None  # Set to None to process entire video
 # -----------
 
 def run_face_detection(frame, model, confidence_threshold):
+
     face_results = model(frame, conf=confidence_threshold, verbose=False)[0]
 
     return face_results
 
-
+'''
 def run_object_detection(frame, model, confidence_threshold,class_ids):
 
     object_results = model(frame, conf=confidence_threshold, classes=class_ids, verbose=False)[0]
 
     return object_results
-
+'''
 
 def get_padded_face_boxes(face_results, frame_width, frame_height):
     boxes = []
@@ -82,7 +77,7 @@ def get_padded_face_boxes(face_results, frame_width, frame_height):
 
     return boxes
 
-
+'''
 def get_padded_object_boxes(object_results, frame_width, frame_height):
     boxes = []
     for box in object_results.boxes:
@@ -100,7 +95,7 @@ def get_padded_object_boxes(object_results, frame_width, frame_height):
         boxes.append(padded_box)
 
     return boxes
-
+'''
 
 def expand_box(box, padding, frame_width, frame_height):
     x1, y1, x2, y2 = box
@@ -223,12 +218,12 @@ def process_video():
     print(f"Start to process the video. Start time: {time.ctime()}")
 
     face_model = YOLO(FACE_MODEL_PATH)
-    object_model = YOLO(OBJECT_MODEL_PATH)
-
+    # object_model = YOLO(OBJECT_MODEL_PATH)
+    '''
     high_risk_object_class_ids = [class_id for class_id, class_name in object_model.names.items() if class_name in HIGH_RISK_OBJECT_CLASS_NAMES]
     if not high_risk_object_class_ids:
         raise ValueError("No valid high-risk object class IDs found." "Check HIGH_RISK_OBJECT_CLASS_NAMES and the object model")
-
+    '''
     cap = cv2.VideoCapture(INPUT_VIDEO_PATH)
     if not cap.isOpened():
         raise RuntimeError(f"Could not open video {INPUT_VIDEO_PATH}")
@@ -238,7 +233,9 @@ def process_video():
     fps = cap.get(cv2.CAP_PROP_FPS)
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
 
-    out = cv2.VideoWriter(OUTPUT_VIDEO_PATH, fourcc,fps,(frame_width, frame_height))
+    out = None
+    if WRITE_BLURRED_VIDEO:
+        out = cv2.VideoWriter(OUTPUT_VIDEO_PATH, fourcc,fps,(frame_width, frame_height))
 
     debug_out = None
     if WRITE_DEBUG_VIDEO:
@@ -247,8 +244,8 @@ def process_video():
 
     tracked_boxes=[]
     frame_count = 0
-    last_object_boxes = []
-    last_object_frame = 0
+    # last_object_boxes = []
+    # last_object_frame = 0
 
     while True:
         ret, frame = cap.read()
@@ -257,7 +254,7 @@ def process_video():
         frame_count += 1
 
         face_results = run_face_detection(frame, face_model, FACE_CONFIDENCE_THRESHOLD)
-
+        '''
         # Only run object detection every N frames, and keep results for a few frames to reduce flickering
         if frame_count ==1 or frame_count % OBJECT_EVERY_N_FRAMES == 0:
             object_results = run_object_detection(frame, object_model, OBJECT_CONFIDENCE_THRESHOLD,high_risk_object_class_ids)
@@ -268,7 +265,7 @@ def process_video():
             current_object_boxes = last_object_boxes
         else:
             current_object_boxes = []
-
+        '''
         current_face_boxes = get_padded_face_boxes(face_results, frame_width, frame_height)
 
         tracked_boxes = track_faces(
@@ -278,16 +275,19 @@ def process_video():
             FACE_HOLD_FRAMES
             )
         boxes_to_blur = [track["box"] for track in tracked_boxes]
-        boxes_to_blur += current_object_boxes
-        blur_boxes(frame, boxes_to_blur)
-
-        out.write(frame)
+        # boxes_to_blur += current_object_boxes
 
         if WRITE_DEBUG_VIDEO:
             debug_frame = frame.copy()
+            tracked_face_boxes = [track["box"] for track in tracked_boxes]
             draw_boxes(debug_frame, current_face_boxes, (0, 255, 0), "Face")
-            draw_boxes(debug_frame, current_object_boxes, (255, 0, 0), "Object")
+            draw_boxes(debug_frame, tracked_face_boxes, (0, 0, 255), "Tracked Face")
+            # draw_boxes(debug_frame, current_object_boxes, (255, 0, 0), "Object")
             debug_out.write(debug_frame)
+
+        if WRITE_BLURRED_VIDEO:
+            blur_boxes(frame, boxes_to_blur)
+            out.write(frame)
 
         if frame_count % 100 == 0:
             print(f"Processed {frame_count} frames")
@@ -298,7 +298,8 @@ def process_video():
 
     # Release resources and close windows
     cap.release()
-    out.release()
+    if out is not None:
+        out.release()
     if debug_out is not None:
         debug_out.release()
 
@@ -308,7 +309,9 @@ def process_video():
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
 
-    print(f"Saved blurred video to: {OUTPUT_VIDEO_PATH}")
+
+    if WRITE_BLURRED_VIDEO:
+        print(f"Saved blurred video to: {OUTPUT_VIDEO_PATH}")
 
     if WRITE_DEBUG_VIDEO:
         print(f"Saved debug video to: {DEBUG_OUTPUT_VIDEO_PATH}")
