@@ -17,7 +17,7 @@ import json
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
 # Define input transcript path
-TRANSCRIPT_FILE = ROOT_DIR / "data" / "output" / "transcription.json"
+TRANSCRIPT_FILE = ROOT_DIR / "data" / "output" / "cleaned_transcription.json"
 
 # Define input diarization path
 DIARIZATION_FILE = ROOT_DIR / "data" / "output" / "diarization.json"
@@ -91,6 +91,33 @@ def flush_current(new_segments, current):
         "text": clean_text(current["words"])
     })
     return None
+
+def merge_same_speaker(segments):
+    if not segments:
+        return []
+
+    merged = []
+
+    for segment in segments:
+        if not merged:
+            merged.append(segment.copy())
+            continue
+
+        previous = merged[-1]
+
+        if previous["speaker"] == segment["speaker"]:
+            previous["end"] = segment["end"]
+            previous["text"] = clean_text([
+                previous["text"],
+                segment["text"]
+ ])
+        else:
+            merged.append(segment.copy())
+
+    for index, segment in enumerate(merged):
+        segment["segment_id"] = index
+
+    return merged
 
 # Merge transcripts words to diarized word-stamps
 def merge():
@@ -174,6 +201,8 @@ def merge():
                 }
 
         current = flush_current(new_segments, current)
+
+    new_segments = merge_same_speaker(new_segments)
 
     output = {
         "language": "fi",
