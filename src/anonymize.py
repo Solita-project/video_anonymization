@@ -24,44 +24,56 @@ OUTPUT_FILE = ROOT_DIR / "data" / "output" / "cleaned_transcription.json"
 
 # Regex patterns for Finnish personal data
 PATTERNS = [
-    # Spoken personal identity code until the next patient number phrase
-    ("HENKILÖTUNNUS", r"\bhenki\S*\s+on\s+.*?(?=\s+Potilas\s+numero|\s+Hän\s+asuu|\s+osoitteessa|$)"),
+    # Finnish personal identity code in normal written form, for example 120580-123X
+    ("HENKILÖTUNNUS", r"\b(?:0[1-9]|[12]\d|3[01])(?:0[1-9]|1[0-2])\d{2}[-+A]\d{3}[0-9A-FHJ-NPR-Y]\b"),
 
-    # Spoken patient number until the next sentence part
-    ("POTILASTUNNUS", r"\bPotilas\s+numero\s+on\s+.*?(?=\s+Hän\s+asuu|\s+osoitteessa|$)"),
-
-    # Finnish postal code in spoken or split form, for example 00 100 Helsinki
-    ("OSOITE", r"\b\d{2}\s+\d{3}\s+(?!Hän\b|Potilas\b)[A-ZÅÄÖ][A-ZÅÄÖa-zåäö-]{3,}\b"),
-
-    # Finnish hospital or health care unit names
-    ("ORGANISAATIO", r"\b[A-ZÅÄÖ][A-ZÅÄÖa-zåäö-]+\s+(?:sairaala|sairaalassa|terveysasema|terveysasemalla|klinikka|klinikalla|poliklinikka|poliklinikalla)\b"),
-
-    # Finnish personal identity code in normal written form
-    ("HENKILÖTUNNUS", r"\b\d{6}[-+A]\d{3}[0-9A-FHJ-NPR-Y]\b"),
-
-    # Finnish personal identity code after spoken or misspelled hetu words
-    ("HENKILÖTUNNUS", r"\b(?:hetu|henkilötunnus\w*|henki\w{0,10}tunnus\w*|sotu|sosiaaliturvatunnus)\s*(?:on|:|=)?\s*(?:\d{1,2}\s*){2}\d{2}\s*(?:[-+A]|\s)?\s*\d{1,3}\s*[A-ZÅÄÖ]{1,5}\b"),
+    # Finnish personal identity code after hetu or henkilötunnus words
+    ("HENKILÖTUNNUS", r"\b(?:hetu|henkilö?tunnus\w*|henki\S{0,20}tunn\w*|sotu|sosiaaliturvatunnus\w*)\s*(?:on|oli|:|=)?\s*((?:0?[1-9]|[12]\d|3[01])\s*(?:0?[1-9]|1[0-2])\s*\d{2,4}\s*(?:[-+A]|viiva|miinus|plus|a)?\s*\d{1,3}\s*[0-9A-ZÅÄÖ]{1,5})\b"),
 
     # Patient ID when written as one word or spoken as separate words
-    ("POTILASTUNNUS", r"\b(?:potilasnumero|potilasnro|potilastunnus|potilas\s+numero)\s*(?:on|:|=)?\s*[A-ZÅÄÖ]?\s*[-/]?\s*\d{1,6}(?:\s+\d{1,6})*\b"),
+    ("POTILASTUNNUS", r"\b(?:potilasnumero|potilasnro|potilastunnus|potilas\s+numero|potilas\s+nro|potilas\s+tunnus)\s*(?:on|oli|:|=)?\s*([A-ZÅÄÖ]{0,4}\s*[-/]?\s*\d{1,8}(?:\s*[-/]?\s*\d{1,8})*)\b"),
 
-    # Normal email address
+    # Other healthcare-related identifying numbers
+    ("POTILASTUNNUS", r"\b(?:asiakasnumero|asiakasnro|käyntinumero|käyntinro|lähetenumero|lähetenro|tutkimusnumero|näytenumero)\s*(?:on|oli|:|=)?\s*([A-ZÅÄÖ]{0,4}\s*[-/]?\s*\d{2,12}(?:\s*[-/]?\s*\d{1,12})*)\b"),
+
+    # Email after email keyword when ASR misses @, for example anna.kurhonen.example.fi
+    ("SÄHKÖPOSTI", r"\b(?:sähköposti|sähköpostiosoite|email|e-mail)\s*(?:on|oli|:|=)?\s*([A-Za-zÅÄÖåäö0-9._%+-]+\.[A-Za-z0-9.-]+\.[A-Za-z]{2,})\b"),
+
+    # Normal email address, for example name@example.com
     ("SÄHKÖPOSTI", r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
 
     # Spoken email address, for example mattivirtanen at example.com
     ("SÄHKÖPOSTI", r"\b[A-Za-zÅÄÖåäö0-9._%+-]+\s+(?:at|ät|miukumauku)\s+[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"),
 
-    # Finnish phone number
+    # Spoken email address with spoken dot, for example matti at example piste fi
+    ("SÄHKÖPOSTI", r"\b[A-Za-zÅÄÖåäö0-9._%+-]+\s+(?:at|ät|miukumauku)\s+[A-Za-z0-9-]+\s+(?:piste|dot)\s+[A-Za-z]{2,}\b"),
+
+    # Finnish phone number in numeric form
     ("PUHELINNUMERO", r"\b(?:\+358|0)\s?(?:\d[\s-]?){6,12}\d\b"),
 
+    # Finnish phone number after a phone keyword, including spoken number words
+    ("PUHELINNUMERO", r"\b(?:puhelinnumero|puhelin\s+numero|puhelin|puh\.?|gsm)\s*(?:on|oli|:|=)?\s*((?:\+358|0|nolla)\s*(?:(?:\d+|nolla|yksi|kaksi|kolme|neljä|viisi|kuusi|seitsemän|kahdeksan|yhdeksän)[\s-]+){4,14}(?:\d+|nolla|yksi|kaksi|kolme|neljä|viisi|kuusi|seitsemän|kahdeksan|yhdeksän))\b"),
+
     # Date of birth
-    ("SYNTYMÄAIKA", r"\b(?:syntynyt|syntymäaika|s\.aika)\s*[:=]?\s*\d{1,2}\.\d{1,2}\.\d{2,4}\b"),
+    ("SYNTYMÄAIKA", r"\b(?:syntynyt|syntymäaika|s\.aika|syntymäpäivä)\s*(?:on|oli|:|=)?\s*(\d{1,2}\.\d{1,2}\.\d{2,4})\b"),
 
-    # Street address
-    ("OSOITE", r"\b[A-ZÅÄÖa-zåäö-]+(?:katu|tie|kuja|polku|kaari|rinne|raitti|aukio|väylä)\s+\d+[A-Za-z]?\b"),
+    # Street address, for example Esimerkkikatu 12A
+    ("OSOITE", r"\b[A-ZÅÄÖa-zåäö-]+(?:katu|tie|kuja|polku|kaari|rinne|raitti|aukio|väylä|puisto|tori|ranta|penger|rinne)\s+\d+[A-Za-z]?\b"),
 
-    # Postal code and city, normal form
-    ("OSOITE", r"\b\d{5}\s+[A-ZÅÄÖ][A-ZÅÄÖa-zåäö-]+\b"),
+    # Street address after address keyword, for example osoitteessa Koivutie 8 B
+    ("OSOITE", r"\b(?:osoite|osoitteessa|asuu\s+osoitteessa)\s*(?:on|oli|:|=)?\s*([A-ZÅÄÖa-zåäö-]+(?:katu|tie|kuja|polku|kaari|rinne|raitti|aukio|väylä|puisto|tori|ranta|penger)\s+\d+\s*[A-Za-z]?)\b"),
+
+    # Postal code and city in normal form, for example 00100 Helsinki
+    ("OSOITE", r"\b\d{5}\s+(?!Hän\b|Potilas\b|potilas\b|on\b)[A-ZÅÄÖ][A-ZÅÄÖa-zåäö-]{2,}\b"),
+
+    # Postal code and city in spoken or split form, for example 00 100 Helsinki
+    ("OSOITE", r"\b\d{2}\s+\d{3}\s+(?!Hän\b|Potilas\b|potilas\b|on\b)[A-ZÅÄÖ][A-ZÅÄÖa-zåäö-]{2,}\b"),
+
+    # Hospital or healthcare unit names, for example Meilahden sairaalassa
+    ("ORGANISAATIO", r"\b(?!Potilas\b|Hän\b)[A-ZÅÄÖ][A-ZÅÄÖa-zåäö-]+\s+(?:yliopistollinen|yliopistollisessa|keskus|keskusessa|keskusairaala|keskussairaalassa)?\s*(?:sairaala|sairaalassa|sairaalaan|sairaalasta|terveysasema|terveysasemalla|terveysasemalle|terveyskeskus|terveyskeskuksessa|klinikka|klinikalla|poliklinikka|poliklinikalla)\b"),
+
+    # Common Finnish hospital abbreviations
+    ("ORGANISAATIO", r"\b(?:HUS|HYKS|TAYS|TYKS|KYS|OYS)\b"),
 ]
 
 
@@ -117,9 +129,20 @@ def add_regex_spans(text, spans):
     # Find personal data with regex patterns
     for label, pattern in PATTERNS:
         for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+
+            # If regex has a capture group, anonymize only that group
+            if match.lastindex:
+                start = match.start(1)
+                end = match.end(1)
+
+            # Otherwise anonymize the full match
+            else:
+                start = match.start()
+                end = match.end()
+
             spans.append({
-                "start": match.start(),
-                "end": match.end(),
+                "start": start,
+                "end": end,
                 "label": label,
             })
 
