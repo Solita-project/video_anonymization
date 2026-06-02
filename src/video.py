@@ -30,9 +30,10 @@ OBJECT_CONFIDENCE_THRESHOLD = 0.25
 FACE_BOX_PADDING = 0.45
 OBJECT_BOX_PADDING = 0.10
 
-FACE_HOLD_FRAMES = 15
-OBJECT_EVERY_N_FRAMES = 5
-OBJECT_HOLD_FRAMES = 15
+FACE_HOLD_FRAMES = 30
+OBJECT_HOLD_FRAMES = 30
+
+OBJECT_EVERY_N_FRAMES = 3
 
 FACE_IOU_THRESHOLD = 0.15
 OBJECT_IOU_THRESHOLD = 0.15
@@ -40,7 +41,7 @@ OBJECT_IOU_THRESHOLD = 0.15
 WRITE_DEBUG_VIDEO = False
 WRITE_BLURRED_VIDEO = True
 
-MAX_FRAMES = 3000  # Set to None to process entire video
+MAX_FRAMES = None  # Set to None to process entire video
 
 # -----------
 # fucntions
@@ -275,21 +276,39 @@ def process_video():
             FACE_IOU_THRESHOLD,
             FACE_HOLD_FRAMES
             )
+        '''
+        if (7350 <= frame_count <= 7380
+            or 7830 <= frame_count <= 7890
+            or 8100 <= frame_count <= 8130
+            or 8160 <= frame_count <= 8190
+            ):
+            print(f"Frame {frame_count}")
+            print("current faces:", current_face_boxes)
+            print("tracked faces:", tracked_face_boxes)
+        '''
         tracked_object_boxes=track_boxes(
             current_object_boxes,
             tracked_object_boxes,
             OBJECT_IOU_THRESHOLD,
             OBJECT_HOLD_FRAMES
         )
+        '''
+        if frame_count % 30 == 0:
+            print(f"Frame {frame_count}")
+            print("current objects:", current_object_boxes)
+            print("tracked objects:", tracked_object_boxes)
+        '''
         boxes_to_blur = [track["box"] for track in tracked_face_boxes]
         boxes_to_blur += [track["box"] for track in tracked_object_boxes]
 
         if WRITE_DEBUG_VIDEO:
             debug_frame = frame.copy()
             tracked_face_draw_boxes = [track["box"] for track in tracked_face_boxes]
+            tracked_object_draw_boxes = [track["box"] for track in tracked_object_boxes]
             draw_boxes(debug_frame, current_face_boxes, (0, 255, 0), "Face")
             draw_boxes(debug_frame, tracked_face_draw_boxes, (0, 0, 255), "Tracked Face")
-            draw_boxes(debug_frame, tracked_object_boxes, (255, 0, 0), "Object")
+            draw_boxes(debug_frame, current_object_boxes, (0, 255, 255), "Object")
+            draw_boxes(debug_frame, tracked_object_draw_boxes, (255, 0, 0), "Tracked Object")
             debug_out.write(debug_frame)
 
         if WRITE_BLURRED_VIDEO:
