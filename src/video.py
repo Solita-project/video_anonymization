@@ -9,7 +9,7 @@ print(model.names)
 YOLOv8s.pt class names:
 {0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'airplane', 5: 'bus', 6: 'train', 7: 'truck', 8: 'boat', 9: 'traffic light', 10: 'fire hydrant', 11: 'stop sign', 12: 'parking meter', 13: 'bench', 14: 'bird', 15: 'cat', 16: 'dog', 17: 'horse', 18: 'sheep', 19: 'cow', 20: 'elephant', 21: 'bear', 22: 'zebra', 23: 'giraffe', 24: 'backpack', 25: 'umbrella', 26: 'handbag', 27: 'tie', 28: 'suitcase', 29: 'frisbee', 30: 'skis', 31: 'snowboard', 32: 'sports ball', 33: 'kite', 34: 'baseball bat', 35: 'baseball glove', 36: 'skateboard', 37: 'surfboard', 38: 'tennis racket', 39: 'bottle', 40: 'wine glass', 41: 'cup', 42: 'fork', 43: 'knife', 44: 'spoon', 45: 'bowl', 46: 'banana', 47: 'apple', 48: 'sandwich', 49: 'orange', 50: 'broccoli', 51: 'carrot', 52: 'hot dog', 53: 'pizza', 54: 'donut', 55: 'cake', 56: 'chair', 57: 'couch', 58: 'potted plant', 59: 'bed', 60: 'dining table', 61: 'toilet', 62: 'tv', 63: 'laptop', 64: 'mouse', 65: 'remote', 66: 'keyboard', 67: 'cell phone', 68: 'microwave', 69: 'oven', 70: 'toaster', 71: 'sink', 72: 'refrigerator', 73: 'book', 74: 'clock', 75: 'vase', 76: 'scissors', 77: 'teddy bear', 78: 'hair drier', 79: 'toothbrush'}
 
-Use: 62: 'tv', 63: 'laptop',67: 'cell phone'73: 'book'
+Use: 62: 'tv', 63: 'laptop', 67: 'cell phone', 73: 'book'
 '''
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -30,9 +30,11 @@ OBJECT_CONFIDENCE_THRESHOLD = 0.25
 FACE_BOX_PADDING = 0.45
 OBJECT_BOX_PADDING = 0.10
 
+# Hold boxes through short detector dropouts. Higher values reduce flicker but can create trailing blur.
 FACE_HOLD_FRAMES = 30
 OBJECT_HOLD_FRAMES = 30
 
+# Object detection is slower, so it runs periodically while tracking bridges skipped frames.
 OBJECT_EVERY_N_FRAMES = 3
 
 FACE_IOU_THRESHOLD = 0.15
@@ -147,7 +149,7 @@ def box_iou(box_a, box_b):
 
     return inter_area / union_area
 
-
+# Maintain active boxes using one-to-one IoU matching and short-term hold
 def track_boxes(current_boxes, tracked_boxes, iou_threshold, hold_frames):
     updated_tracks = []
     matched_track_indexes = set()
@@ -220,7 +222,6 @@ def process_video():
 
     face_model = YOLO(FACE_MODEL_PATH)
     object_model = YOLO(OBJECT_MODEL_PATH)
-
     high_risk_object_class_ids = [class_id for class_id, class_name in object_model.names.items() if class_name in HIGH_RISK_OBJECT_CLASS_NAMES]
 
     if not high_risk_object_class_ids:
@@ -246,7 +247,6 @@ def process_video():
     debug_out = None
     if WRITE_DEBUG_VIDEO:
         debug_out = cv2.VideoWriter(DEBUG_OUTPUT_VIDEO_PATH, fourcc,fps,(frame_width, frame_height))
-
 
 
     tracked_face_boxes=[]
@@ -276,28 +276,14 @@ def process_video():
             FACE_IOU_THRESHOLD,
             FACE_HOLD_FRAMES
             )
-        '''
-        if (7350 <= frame_count <= 7380
-            or 7830 <= frame_count <= 7890
-            or 8100 <= frame_count <= 8130
-            or 8160 <= frame_count <= 8190
-            ):
-            print(f"Frame {frame_count}")
-            print("current faces:", current_face_boxes)
-            print("tracked faces:", tracked_face_boxes)
-        '''
+
         tracked_object_boxes=track_boxes(
             current_object_boxes,
             tracked_object_boxes,
             OBJECT_IOU_THRESHOLD,
             OBJECT_HOLD_FRAMES
         )
-        '''
-        if frame_count % 30 == 0:
-            print(f"Frame {frame_count}")
-            print("current objects:", current_object_boxes)
-            print("tracked objects:", tracked_object_boxes)
-        '''
+
         boxes_to_blur = [track["box"] for track in tracked_face_boxes]
         boxes_to_blur += [track["box"] for track in tracked_object_boxes]
 
@@ -334,7 +320,6 @@ def process_video():
     # Track runtime when the video processing ends
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
-
 
     if WRITE_BLURRED_VIDEO:
         print(f"Saved blurred video to: {OUTPUT_VIDEO_PATH}")
