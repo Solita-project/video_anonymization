@@ -59,17 +59,22 @@ def merge(video_file, audio_file, output_file):
     # Ensures output directory exists before writing audio file
     output_file.parent.mkdir(parents=True, exist_ok=True)
 
-    # FFmpeg command for audio extraction
+    # FFmpeg command for merging audio and video into a browser-friendly MP4
     cmd = [
         ffmpeg,
-        "-y",               # overwrite output file if exists
+        "-y",                       # overwrite output file if it exists
         "-i", str(video_file),
         "-i", str(audio_file),
-        "-map", "0:v:0",    # take video from first input
-        "-map", "1:a:0",    # take audio from second input
-        "-c:v", "copy",     # copy video stream (no re-encoding)
-        "-c:a", "aac",      # encode audio to AAC (widely supported)
-        "-b:a", "192k",     # set audio bitrate
+        "-map", "0:v:0",            # take video from first input
+        "-map", "1:a:0",            # take audio from second input
+        "-c:v", "libx264",          # encode video to H.264 for browser playback
+        "-preset", "medium",        # use balanced encoding speed and file size
+        "-crf", "23",               # set video quality
+        "-pix_fmt", "yuv420p",      # use browser-friendly pixel format
+        "-c:a", "aac",              # encode audio to AAC
+        "-b:a", "192k",             # set audio bitrate
+        "-movflags", "+faststart",  # make MP4 start faster in browsers
+        "-shortest",                # stop when the shorter input ends
         str(output_file)
     ]
 
