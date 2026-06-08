@@ -93,25 +93,41 @@ def run_script(title, script):
     message.success(f"Completed: {title}")
 
 
+def clean_folder_contents(folder):
+    # Remove all files and subfolders inside a folder
+    folder.mkdir(parents=True, exist_ok=True)
+
+    for path in folder.iterdir():
+
+        # Keep placeholder files if the project uses them
+        if path.name == ".gitkeep":
+            continue
+
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+        else:
+            path.unlink()
+
+
 def clean_old_outputs():
-    # Remove old files so the new run starts clean
-    files = [
-        INPUT_DIR / "audio.wav",
-        OUTPUT_DIR / "transcription.json",
-        OUTPUT_DIR / "cleaned_transcription.json",
-        OUTPUT_DIR / "diarization.json",
-        OUTPUT_DIR / "final_transcript.json",
-        OUTPUT_DIR / "clean_audio.wav",
-        OUTPUT_DIR / "video_blurred.mp4",
-        OUTPUT_DIR / "final_video.mp4",
-    ]
+    # Remove old input and output files so the next run starts clean
+    clean_folder_contents(INPUT_DIR)
+    clean_folder_contents(OUTPUT_DIR)
 
-    for file in files:
-        if file.exists():
-            file.unlink()
 
-    # Remove old temporary TTS segments
-    shutil.rmtree(OUTPUT_DIR / "tts_segments", ignore_errors=True)
+def clean_files_on_new_session():
+    # Clean previous files when a new Streamlit session starts
+    if "startup_cleanup_done" in st.session_state:
+        return
+
+    clean_old_outputs()
+
+    st.session_state.startup_cleanup_done = True
+    st.session_state.review_ready = False
+    st.session_state.updated_segments = {}
+
+    if "review_data" in st.session_state:
+        del st.session_state.review_data
 
 
 def save_uploaded_video(uploaded_file):
@@ -329,9 +345,6 @@ def show_review_ui():
         st.session_state.review_data[selected] = segment
         save_cleaned_transcript(st.session_state.review_data)
 
-        if "updated_segments" not in st.session_state:
-            st.session_state.updated_segments = {}
-
         st.session_state.updated_segments[selected] = segment.get("text", "")
 
         st.success("Changes saved.")
@@ -364,12 +377,10 @@ def show_video_area():
 def reset_app_state():
     # Reset Streamlit state for a new video
     st.session_state.review_ready = False
+    st.session_state.updated_segments = {}
 
     if "review_data" in st.session_state:
         del st.session_state.review_data
-
-    if "updated_segments" in st.session_state:
-        del st.session_state.updated_segments
 
 
 def main():
@@ -382,6 +393,9 @@ def main():
     # Hide default Streamlit UI controls
     hide_streamlit_buttons()
 
+    # Clean old files when the app is opened in a new session
+    clean_files_on_new_session()
+
     st.title("Video anonymization")
 
     st.write(
@@ -390,10 +404,7 @@ def main():
     )
 
     if "review_ready" not in st.session_state:
-        st.session_state.review_ready = CLEANED_TRANSCRIPT_FILE.exists()
-
-    if "review_data" not in st.session_state and CLEANED_TRANSCRIPT_FILE.exists():
-        st.session_state.review_data = load_cleaned_transcript()
+        st.session_state.review_ready = False
 
     if "updated_segments" not in st.session_state:
         st.session_state.updated_segments = {}
