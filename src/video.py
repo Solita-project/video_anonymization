@@ -48,22 +48,17 @@ MAX_FRAMES = 300  # Set to None to process entire video
 # -----------
 
 def run_face_detection(frame, model, confidence_threshold):
-
     face_results = model(frame, conf=confidence_threshold, verbose=False)[0]
-
     return face_results
 
 
 def run_object_detection(frame, model, confidence_threshold,class_ids):
-
     object_results = model(frame, conf=confidence_threshold, classes=class_ids, verbose=False)[0]
-
     return object_results
 
 def run_head_detection(frame, model, confidence_threshold):
     head_results = model(frame, conf=confidence_threshold, verbose=False)[0]
     return head_results
-
 
 def get_padded_face_boxes(face_results, frame_width, frame_height):
     boxes = []
@@ -82,7 +77,6 @@ def get_padded_face_boxes(face_results, frame_width, frame_height):
         boxes.append(padded_box)
 
     return boxes
-
 
 def get_padded_object_boxes(object_results, frame_width, frame_height):
     boxes = []
@@ -213,7 +207,6 @@ def track_boxes(current_boxes, tracked_boxes, iou_threshold, hold_frames):
             })
 
     return updated_tracks
-
 
 def blur_boxes(frame, boxes_to_blur):
     for x1, y1, x2, y2 in boxes_to_blur:
