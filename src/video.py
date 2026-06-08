@@ -3,14 +3,6 @@ from ultralytics import YOLO
 import time
 from pathlib import Path
 
-'''
-model = YOLO("yolov8s.pt")
-print(model.names)
-YOLOv8s.pt class names:
-{0: 'person', 1: 'bicycle', 2: 'car', 3: 'motorcycle', 4: 'airplane', 5: 'bus', 6: 'train', 7: 'truck', 8: 'boat', 9: 'traffic light', 10: 'fire hydrant', 11: 'stop sign', 12: 'parking meter', 13: 'bench', 14: 'bird', 15: 'cat', 16: 'dog', 17: 'horse', 18: 'sheep', 19: 'cow', 20: 'elephant', 21: 'bear', 22: 'zebra', 23: 'giraffe', 24: 'backpack', 25: 'umbrella', 26: 'handbag', 27: 'tie', 28: 'suitcase', 29: 'frisbee', 30: 'skis', 31: 'snowboard', 32: 'sports ball', 33: 'kite', 34: 'baseball bat', 35: 'baseball glove', 36: 'skateboard', 37: 'surfboard', 38: 'tennis racket', 39: 'bottle', 40: 'wine glass', 41: 'cup', 42: 'fork', 43: 'knife', 44: 'spoon', 45: 'bowl', 46: 'banana', 47: 'apple', 48: 'sandwich', 49: 'orange', 50: 'broccoli', 51: 'carrot', 52: 'hot dog', 53: 'pizza', 54: 'donut', 55: 'cake', 56: 'chair', 57: 'couch', 58: 'potted plant', 59: 'bed', 60: 'dining table', 61: 'toilet', 62: 'tv', 63: 'laptop', 64: 'mouse', 65: 'remote', 66: 'keyboard', 67: 'cell phone', 68: 'microwave', 69: 'oven', 70: 'toaster', 71: 'sink', 72: 'refrigerator', 73: 'book', 74: 'clock', 75: 'vase', 76: 'scissors', 77: 'teddy bear', 78: 'hair drier', 79: 'toothbrush'}
-
-Use: 62: 'tv', 63: 'laptop',67: 'cell phone'73: 'book'
-'''
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 INPUT_VIDEO_PATH = ROOT_DIR / "data" / "input" / "video.mp4"
@@ -19,45 +11,54 @@ DEBUG_OUTPUT_VIDEO_PATH = ROOT_DIR / "data" / "output" / "video_debug_boxes.mp4"
 
 BLUR_KERNEL_SIZE = (99, 99)
 BLUR_SIGMA = 30
+
 FACE_MODEL_PATH = ROOT_DIR / "models" / "yolov8s-face-lindevs.pt"
-# OBJECT_MODEL_PATH = ROOT_DIR / "models" / "yolov8s.pt"
+OBJECT_MODEL_PATH = ROOT_DIR / "models" / "yolov8s.pt"
+HEAD_MODEL_PATH = ROOT_DIR / "models" / "yolov8_head_medium.pt"
 
-# HIGH_RISK_OBJECT_CLASS_NAMES = ['tv', 'laptop', 'cell phone', 'book']
+HIGH_RISK_OBJECT_CLASS_NAMES = ['tv', 'laptop', 'cell phone', 'book']
 
-FACE_CONFIDENCE_THRESHOLD = 0.03
-# OBJECT_CONFIDENCE_THRESHOLD = 0.25
+FACE_CONFIDENCE_THRESHOLD = 0.25
+HEAD_CONFIDENCE_THRESHOLD = 0.25
+OBJECT_CONFIDENCE_THRESHOLD = 0.25
 
+HEAD_BOX_PADDING = 0.20
 FACE_BOX_PADDING = 0.45
-# OBJECT_BOX_PADDING = 0.10
+OBJECT_BOX_PADDING = 0.10
 
-FACE_HOLD_FRAMES = 45
-IOU_THRESHOLD = 0.15
+# Hold boxes through short detector dropouts. Higher values reduce flicker but can create trailing blur.
+FACE_HOLD_FRAMES = 30
+OBJECT_HOLD_FRAMES = 30
+HEAD_HOLD_FRAMES = 30
 
-# OBJECT_EVERY_N_FRAMES = 5
-# OBJECT_HOLD_FRAMES = 15
+# Object detection is slower, so it runs periodically while tracking bridges skipped frames.
+OBJECT_EVERY_N_FRAMES = 3
 
-WRITE_DEBUG_VIDEO = False
+FACE_IOU_THRESHOLD = 0.15
+OBJECT_IOU_THRESHOLD = 0.15
+HEAD_IOU_THRESHOLD = 0.15
+
+WRITE_DEBUG_VIDEO = True
 WRITE_BLURRED_VIDEO = True
 
-MAX_FRAMES = None  # Set to None to process entire video
+MAX_FRAMES = 300  # Set to None to process entire video
 
 # -----------
 # fucntions
 # -----------
 
 def run_face_detection(frame, model, confidence_threshold):
-
     face_results = model(frame, conf=confidence_threshold, verbose=False)[0]
-
     return face_results
 
-'''
+
 def run_object_detection(frame, model, confidence_threshold,class_ids):
-
     object_results = model(frame, conf=confidence_threshold, classes=class_ids, verbose=False)[0]
-
     return object_results
-'''
+
+def run_head_detection(frame, model, confidence_threshold):
+    head_results = model(frame, conf=confidence_threshold, verbose=False)[0]
+    return head_results
 
 def get_padded_face_boxes(face_results, frame_width, frame_height):
     boxes = []
@@ -77,7 +78,6 @@ def get_padded_face_boxes(face_results, frame_width, frame_height):
 
     return boxes
 
-'''
 def get_padded_object_boxes(object_results, frame_width, frame_height):
     boxes = []
     for box in object_results.boxes:
@@ -95,7 +95,24 @@ def get_padded_object_boxes(object_results, frame_width, frame_height):
         boxes.append(padded_box)
 
     return boxes
-'''
+
+def get_padded_head_boxes(head_results, frame_width, frame_height):
+    boxes = []
+    for box in head_results.boxes:
+        x1, y1, x2, y2 = box.xyxy[0]
+
+        padded_box = expand_box(
+            (x1, y1, x2, y2),
+            HEAD_BOX_PADDING,
+            frame_width,
+            frame_height
+        )
+        if padded_box is None:
+            continue
+
+        boxes.append(padded_box)
+
+    return boxes
 
 def expand_box(box, padding, frame_width, frame_height):
     x1, y1, x2, y2 = box
@@ -145,26 +162,32 @@ def box_iou(box_a, box_b):
 
     return inter_area / union_area
 
-
-def track_faces(current_boxes, tracked_boxes, iou_threshold, hold_frames):
+# Maintain active boxes using one-to-one IoU matching and short-term hold
+def track_boxes(current_boxes, tracked_boxes, iou_threshold, hold_frames):
     updated_tracks = []
+    matched_track_indexes = set()
+
     for current_box in current_boxes:
-        best_match = None
+        best_match_index = None
         best_iou = 0
 
-        for track in tracked_boxes:
-            iou = box_iou(current_box, track["box"])
+        for track_index, track in enumerate(tracked_boxes):
+            if track_index in matched_track_indexes:
+                continue
+
+            iou = box_iou(current_box, track["box"]) # track["box"] is the previous current_box
 
             if iou > best_iou:
                 best_iou = iou
-                best_match = track
+                best_match_index = track_index
 
-        if best_match is not None and best_iou >= iou_threshold:
+        if best_match_index is not None and best_iou >= iou_threshold:
+            matched_track_indexes.add(best_match_index)
 
-            best_match["box"] = current_box
-            best_match["missed"] = 0
-
-            updated_tracks.append(best_match)
+            updated_tracks.append({
+                "box": current_box,
+                "missed": 0,
+            })
         else:
             updated_tracks.append({
                 "box": current_box,
@@ -172,26 +195,18 @@ def track_faces(current_boxes, tracked_boxes, iou_threshold, hold_frames):
             })
 
     # keep temporarily missing tracks
-    for old_track in tracked_boxes:
-        already_kept = False
+    for track_index, old_track in enumerate(tracked_boxes):
+        if track_index in matched_track_indexes:
+            continue
 
-        for new_track in updated_tracks:
-            if box_iou(
-                old_track["box"],
-                new_track["box"]
-            ) >= iou_threshold:
-
-                already_kept = True
-                break
-
-        if not already_kept:
-            old_track["missed"] += 1
-
-            if old_track["missed"] <= hold_frames:
-                updated_tracks.append(old_track)
+        missed = old_track["missed"]+1
+        if missed <= hold_frames:
+            updated_tracks.append({
+                "box":old_track["box"],
+                "missed": missed
+            })
 
     return updated_tracks
-
 
 def blur_boxes(frame, boxes_to_blur):
     for x1, y1, x2, y2 in boxes_to_blur:
@@ -218,12 +233,14 @@ def process_video():
     print(f"Start to process the video. Start time: {time.ctime()}")
 
     face_model = YOLO(FACE_MODEL_PATH)
-    # object_model = YOLO(OBJECT_MODEL_PATH)
-    '''
+    object_model = YOLO(OBJECT_MODEL_PATH)
+    head_model = YOLO(HEAD_MODEL_PATH)
+
     high_risk_object_class_ids = [class_id for class_id, class_name in object_model.names.items() if class_name in HIGH_RISK_OBJECT_CLASS_NAMES]
+
     if not high_risk_object_class_ids:
         raise ValueError("No valid high-risk object class IDs found." "Check HIGH_RISK_OBJECT_CLASS_NAMES and the object model")
-    '''
+
     cap = cv2.VideoCapture(INPUT_VIDEO_PATH)
     if not cap.isOpened():
         raise RuntimeError(f"Could not open video {INPUT_VIDEO_PATH}")
@@ -231,7 +248,11 @@ def process_video():
     frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+
+    print(f"Processing : {INPUT_VIDEO_PATH}")
+    print(f"Resolution : {frame_width}x{frame_height} @ {fps:.2f}fps | {total_frames} total frames")
 
     out = None
     if WRITE_BLURRED_VIDEO:
@@ -242,10 +263,10 @@ def process_video():
         debug_out = cv2.VideoWriter(DEBUG_OUTPUT_VIDEO_PATH, fourcc,fps,(frame_width, frame_height))
 
 
-    tracked_boxes=[]
+    tracked_face_boxes=[]
+    tracked_head_boxes=[]
+    tracked_object_boxes = []
     frame_count = 0
-    # last_object_boxes = []
-    # last_object_frame = 0
 
     while True:
         ret, frame = cap.read()
@@ -254,35 +275,54 @@ def process_video():
         frame_count += 1
 
         face_results = run_face_detection(frame, face_model, FACE_CONFIDENCE_THRESHOLD)
-        '''
-        # Only run object detection every N frames, and keep results for a few frames to reduce flickering
+        head_results = run_face_detection(frame, head_model, HEAD_CONFIDENCE_THRESHOLD)
+
+        # Only run object detection every N frames
         if frame_count ==1 or frame_count % OBJECT_EVERY_N_FRAMES == 0:
             object_results = run_object_detection(frame, object_model, OBJECT_CONFIDENCE_THRESHOLD,high_risk_object_class_ids)
             current_object_boxes = get_padded_object_boxes(object_results, frame_width, frame_height)
-            last_object_boxes = current_object_boxes
-            last_object_frame = frame_count
-        elif frame_count - last_object_frame <= OBJECT_HOLD_FRAMES:
-            current_object_boxes = last_object_boxes
         else:
             current_object_boxes = []
-        '''
-        current_face_boxes = get_padded_face_boxes(face_results, frame_width, frame_height)
 
-        tracked_boxes = track_faces(
+        current_face_boxes = get_padded_face_boxes(face_results, frame_width, frame_height)
+        current_head_boxes = get_padded_head_boxes(head_results, frame_width, frame_height)
+
+        tracked_face_boxes = track_boxes(
             current_face_boxes,
-            tracked_boxes,
-            IOU_THRESHOLD,
+            tracked_face_boxes,
+            FACE_IOU_THRESHOLD,
             FACE_HOLD_FRAMES
             )
-        boxes_to_blur = [track["box"] for track in tracked_boxes]
-        # boxes_to_blur += current_object_boxes
+        tracked_head_boxes = track_boxes(
+            current_head_boxes,
+            tracked_head_boxes,
+            HEAD_IOU_THRESHOLD,
+            HEAD_HOLD_FRAMES
+        )
+
+        tracked_object_boxes=track_boxes(
+            current_object_boxes,
+            tracked_object_boxes,
+            OBJECT_IOU_THRESHOLD,
+            OBJECT_HOLD_FRAMES
+        )
+
+        boxes_to_blur = [track["box"] for track in tracked_face_boxes]
+        boxes_to_blur += [track["box"] for track in tracked_head_boxes]
+        boxes_to_blur += [track["box"] for track in tracked_object_boxes]
 
         if WRITE_DEBUG_VIDEO:
             debug_frame = frame.copy()
-            tracked_face_boxes = [track["box"] for track in tracked_boxes]
+            tracked_face_draw_boxes = [track["box"] for track in tracked_face_boxes]
+            tracked_head_draw_boxes = [track["box"] for track in tracked_head_boxes]
+            tracked_object_draw_boxes = [track["box"] for track in tracked_object_boxes]
+
             draw_boxes(debug_frame, current_face_boxes, (0, 255, 0), "Face")
-            draw_boxes(debug_frame, tracked_face_boxes, (0, 0, 255), "Tracked Face")
-            # draw_boxes(debug_frame, current_object_boxes, (255, 0, 0), "Object")
+            draw_boxes(debug_frame, tracked_face_draw_boxes, (0, 0, 255), "Tracked Face")
+            draw_boxes(debug_frame, current_head_boxes, (255,255,255), "head")
+            draw_boxes(debug_frame, tracked_head_draw_boxes, (255, 0, 255), "Tracked head")
+            draw_boxes(debug_frame, current_object_boxes, (0, 255, 255), "Object")
+            draw_boxes(debug_frame, tracked_object_draw_boxes, (255, 0, 0), "Tracked Object")
             debug_out.write(debug_frame)
 
         if WRITE_BLURRED_VIDEO:
@@ -308,7 +348,6 @@ def process_video():
     # Track runtime when the video processing ends
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
-
 
     if WRITE_BLURRED_VIDEO:
         print(f"Saved blurred video to: {OUTPUT_VIDEO_PATH}")
