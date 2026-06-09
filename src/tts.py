@@ -2,11 +2,13 @@
 # Gets voices/*.wav files and gives them to the speaker id's
 # Loads Chatterbox TTS model
 # Generates speech audio
+# Saves clean_audio.wav
 # Usage:
 # source venvs/tts/Scripts/activate
 # python src/tts.py
 
 import json
+import re
 from pathlib import Path
 
 import torch
@@ -29,6 +31,20 @@ def get_voices():
         raise FileNotFoundError(f"No voice files found in {VOICES_DIR}")
 
     return voices
+
+def normalize_tts(text):
+    replace = {
+        r"\biv\b": "ii-vee",
+        r"\bIV\b": "ii-vee",
+        r"\bEKG\b": "ee-koo-gee",
+        r"\bMRI\b": "äm-ärr-ii",
+        r"\bCT\b": "see-tee",
+    }
+
+    for pattern, replacement in replace.items():
+        text = re.sub(pattern, replacement, text)
+
+    return text
 
 # Get the speaker ID for a word based on the diarization segments
 def create_voice_map(segments, voices):
@@ -79,9 +95,15 @@ def build_full_audio(segments, speaker_voice):
         raise ValueError("No segments found in final_transcript.json")
 
     total_duration = max(float(seg["end"]) for seg in segments)
-    total_samples = int(total_duration * sample_rate) + sample_rate
+    total_samples = int(total_duration * sample_rate) + sample_rate * 30
 
     final_wav = torch.zeros(1, total_samples)
+
+    previous_speaker = None
+    current_sample = 0
+
+    same_speaker_pause = 0.01
+    different_speaker_pause = 0.25
 
     for segment in segments:
         text = segment.get("text", "").strip()
@@ -89,29 +111,46 @@ def build_full_audio(segments, speaker_voice):
         if not text:
             continue
 
+        text = normalize_tts(text)
+
         speaker = segment.get("speaker", "unknown")
         voice_path = speaker_voice.get(speaker)
 
         if voice_path is None:
             raise ValueError(f"No voice found for speaker: {speaker}")
 
-        start = float(segment["start"])
-        end = float(segment["end"])
+        original_start = float(segment["start"])
+        original_end = float(segment["end"])
+        original_start_sample = int(original_start * sample_rate)
 
-        start_sample = int(start * sample_rate)
-        end_sample = int(end * sample_rate)
-        target_samples = max(1, end_sample - start_sample)
+        if previous_speaker is None:
+            pause_seconds = 0
+        elif speaker == previous_speaker:
+            pause_seconds = same_speaker_pause
+        else:
+            pause_seconds = different_speaker_pause
 
-        print(f"Generating: {speaker} | {start:.2f}-{end:.2f} | {voice_path.name}")
+        pause_samples = int(pause_seconds * sample_rate)
+
+        actual_start_sample = max(
+            original_start_sample,
+            current_sample + pause_samples
+ )
+
+        print(
+            f"Generating: {speaker} | "
+            f"{original_start:.2f}-{original_end:.2f} | "
+            f"pause {pause_seconds:.2f}s | "
+            f"{voice_path.name}"
+ )
 
         wav = generate_segment_audio(text, voice_path)
 
         if wav.device != final_wav.device:
             wav = wav.cpu()
 
-        wav = audio_duration(wav, target_samples)
+        insert_end = actual_start_sample + wav.shape[1]
 
-        insert_end = start_sample + wav.shape[1]
         if insert_end > final_wav.shape[1]:
             extra_samples = insert_end - final_wav.shape[1]
 
@@ -120,16 +159,16 @@ def build_full_audio(segments, speaker_voice):
                 extra_samples,
                 dtype=final_wav.dtype,
                 device=final_wav.device
-            )
+ )
+
             final_wav = torch.cat([final_wav, padding], dim=1)
-        final_wav[:, start_sample:insert_end] += wav
 
-        wav = wav[:, :insert_end - start_sample]
+        final_wav[:, actual_start_sample:insert_end] += wav
 
-        final_wav[:, start_sample:insert_end] += wav
+        current_sample = insert_end
+        previous_speaker = speaker
 
     return final_wav
-
 # Save the final audio to a file
 def save_audio(output_file, wav, sample_rate):
     wav = wav.detach().cpu()
@@ -163,6 +202,7 @@ def main():
     save_audio(OUTPUT_FILE, final_wav, model.sr)
 
     print(f"Clean audio saved to: {OUTPUT_FILE}")
+
 
 
 if __name__ == "__main__":
