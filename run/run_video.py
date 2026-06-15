@@ -22,7 +22,8 @@ else:
 subprocess.run(
     [
         str(PYTHON),
-        str(SCRIPT),
+        "-m",
+        "src.video"
     ],
     cwd=ROOT_DIR,
     check=True,
