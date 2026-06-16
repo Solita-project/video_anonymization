@@ -206,6 +206,34 @@ def draw_boxes(frame, boxes, color, label):
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
         cv2.putText(frame, label, (x1, max(20,y1-5)), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
 
+def frames_to_ranges(frames,fps):
+    if not frames:
+        return []
+    ranges = []
+    start = frames[0]
+    previous = frames[0]
+
+    for frame in frames[1:]:
+        if frame == previous +1:
+            previous = frame
+            continue
+        ranges.append({
+            "start_frame":start,
+            "end_frame":previous,
+            "start_time_seconds":round(start/fps,2),
+            "end_time_seconds":round(previous/fps,2),
+        })
+        start = frame
+        previous = frame
+
+    ranges.append({
+        "start_frame":start,
+        "end_frame":previous,
+        "start_time_seconds":round(start/fps,2),
+        "end_time_seconds":round(previous/fps,2),
+    })
+    return ranges
+
 def process_video(
     input_video_path=INPUT_VIDEO_PATH,
     output_video_path=OUTPUT_VIDEO_PATH,
@@ -262,7 +290,11 @@ def process_video(
         "frames_with_face_detection":0,
         "frames_with_head_detection":0,
         "frames_with_object_detection":0,
-        "frames_with_no_face_or_head":[],
+        "frames_with_held_face_or_head_boxes": [],
+        "frames_with_no_face_detection": [],
+        "frames_with_no_head_detection": [],
+        "frames_with_no_face_but_head_detected":[],
+        "frames_with_no_face_or_head_detection":[],
     }
 
     tracked_face_boxes=[]
@@ -295,8 +327,15 @@ def process_video(
             report["frames_with_head_detection"] += 1
         if current_object_boxes:
             report["frames_with_object_detection"] += 1
+
+        if not current_face_boxes:
+            report["frames_with_no_face_detection"].append(frame_count)
+        if not current_head_boxes:
+            report["frames_with_no_head_detection"].append(frame_count)
+        if not current_face_boxes and current_head_boxes:
+            report["frames_with_no_face_but_head_detected"].append(frame_count)
         if not current_face_boxes and not current_head_boxes:
-            report["frames_with_no_face_or_head"].append(frame_count)
+            report["frames_with_no_face_or_head_detection"].append(frame_count)
         report["processed_frames"] = frame_count
 
         tracked_face_boxes = track_boxes(
@@ -319,6 +358,20 @@ def process_video(
             profile["object_iou_threshold"],
             profile["object_hold_frames"]
         )
+
+        held_face_boxes=[
+            track["box"]
+            for track in tracked_face_boxes
+            if track["missed"]>0
+        ]
+
+        held_head_boxes=[
+            track["box"]
+            for track in tracked_head_boxes
+            if track["missed"]>0
+        ]
+        if held_face_boxes or held_head_boxes:
+            report["frames_with_held_face_or_head_boxes"].append(frame_count)
 
         boxes_to_blur = [track["box"] for track in tracked_face_boxes]
         boxes_to_blur += [track["box"] for track in tracked_head_boxes]
@@ -364,6 +417,32 @@ def process_video(
     report["runtime_seconds"] = round(elapsed_time,2)
     report["runtime_minutes"] = round(elapsed_time/60,2)
 
+    report["review_ranges"]={
+        "no_face_detection":
+        frames_to_ranges(
+            report["frames_with_no_face_detection"],fps
+        ),
+        "no_head_detection":
+        frames_to_ranges(report["frames_with_no_head_detection"],fps),
+        "no_face_but_head_detected":
+        frames_to_ranges(report["frames_with_no_face_but_head_detected"],fps),
+        "held_face_or_head_boxes":
+        frames_to_ranges(
+            report["frames_with_held_face_or_head_boxes"],fps
+        ),
+        "no_face_or_head_detection":
+        frames_to_ranges(report["frames_with_no_face_or_head_detection"],fps)
+    }
+
+    review_warnings = []
+    if report["frames_with_no_face_or_head_detection"]:
+        review_warnings.append("Some frames had no current face or head detection. Please review these ranges carefully.")
+    if report["frames_with_held_face_or_head_boxes"]:
+        review_warnings.append("Some frames used held face/head boxes after detector dropouts. Please check whether the blur still covers the correct area.")
+    if report["frames_with_no_face_but_head_detected"]:
+        review_warnings.append("Some frames had no face detection but did have head detection.")
+    report["review_warnings"] = review_warnings
+
     if WRITE_BLURRED_VIDEO:
         print(f"Saved blurred video to: {output_video_path}")
 
@@ -372,12 +451,12 @@ def process_video(
 
     print(f"Video processing stopped at: {time.ctime()}")
     print(f"Total runtime: {elapsed_time:.2f} seconds ({elapsed_time / 60:.2f} minutes)")
+
     report_output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(report_output_path, "w", encoding="utf-8") as f:
         json.dump(report,f,indent=4,ensure_ascii=False)
-
-
-
+    print(f"Saved report to: {report_output_path}")
+    return report
 
 if __name__ == "__main__":
     process_video()
