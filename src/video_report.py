@@ -110,7 +110,7 @@ def build_review_section(report, fps):
 
     if sustained_held_ranges:
         warnings.append(
-            "Some sustained detector dropouts used held face/head boxes. Check whether the blur still covers the correct area."
+            "Some ranges used tracker-held blur boxes. Review these ranges to confirm blur coverage."
         )
 
     return {
