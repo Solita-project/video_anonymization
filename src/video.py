@@ -17,6 +17,7 @@ from src.video_config import (
     REPORT_OUTPUT_PATH,
     PROFILES,
 )
+from src.video_report import build_review_section
 
 WRITE_DEBUG_VIDEO = True
 WRITE_BLURRED_VIDEO = True
@@ -206,34 +207,6 @@ def draw_boxes(frame, boxes, color, label):
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
         cv2.putText(frame, label, (x1, max(20,y1-5)), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
 
-def frames_to_ranges(frames,fps):
-    if not frames:
-        return []
-    ranges = []
-    start = frames[0]
-    previous = frames[0]
-
-    for frame in frames[1:]:
-        if frame == previous +1:
-            previous = frame
-            continue
-        ranges.append({
-            "start_frame":start,
-            "end_frame":previous,
-            "start_time_seconds":round(start/fps,2),
-            "end_time_seconds":round(previous/fps,2),
-        })
-        start = frame
-        previous = frame
-
-    ranges.append({
-        "start_frame":start,
-        "end_frame":previous,
-        "start_time_seconds":round(start/fps,2),
-        "end_time_seconds":round(previous/fps,2),
-    })
-    return ranges
-
 def process_video(
     input_video_path=INPUT_VIDEO_PATH,
     output_video_path=OUTPUT_VIDEO_PATH,
@@ -417,31 +390,7 @@ def process_video(
     report["runtime_seconds"] = round(elapsed_time,2)
     report["runtime_minutes"] = round(elapsed_time/60,2)
 
-    report["review_ranges"]={
-        "no_face_detection":
-        frames_to_ranges(
-            report["frames_with_no_face_detection"],fps
-        ),
-        "no_head_detection":
-        frames_to_ranges(report["frames_with_no_head_detection"],fps),
-        "no_face_but_head_detected":
-        frames_to_ranges(report["frames_with_no_face_but_head_detected"],fps),
-        "held_face_or_head_boxes":
-        frames_to_ranges(
-            report["frames_with_held_face_or_head_boxes"],fps
-        ),
-        "no_face_or_head_detection":
-        frames_to_ranges(report["frames_with_no_face_or_head_detection"],fps)
-    }
-
-    review_warnings = []
-    if report["frames_with_no_face_or_head_detection"]:
-        review_warnings.append("Some frames had no current face or head detection. Please review these ranges carefully.")
-    if report["frames_with_held_face_or_head_boxes"]:
-        review_warnings.append("Some frames used held face/head boxes after detector dropouts. Please check whether the blur still covers the correct area.")
-    if report["frames_with_no_face_but_head_detected"]:
-        review_warnings.append("Some frames had no face detection but did have head detection.")
-    report["review_warnings"] = review_warnings
+    report.update(build_review_section(report, fps))
 
     if WRITE_BLURRED_VIDEO:
         print(f"Saved blurred video to: {output_video_path}")
