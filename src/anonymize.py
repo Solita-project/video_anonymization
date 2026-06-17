@@ -7,8 +7,7 @@
 
 from pathlib import Path
 import json
-import re
-
+import regex as re
 import spacy
 
 
@@ -20,6 +19,15 @@ INPUT_FILE = ROOT_DIR / "data" / "output" / "transcription.json"
 
 # Define cleaned transcript output file
 OUTPUT_FILE = ROOT_DIR / "data" / "output" / "cleaned_transcription.json"
+
+
+# spaCy models used for entity detection
+# fi_core_news_md = Finnish model
+# xx_ent_wiki_sm = multilingual entity model
+SPACY_MODEL_NAMES = [
+    "fi_core_news_md",
+    "xx_ent_wiki_sm",
+]
 
 
 # Regex patterns for Finnish personal data
@@ -105,9 +113,34 @@ SAFE_SPACY_WORDS = {
 }
 
 
-def load_model():
-    # Load Finnish spaCy model
-    return spacy.load("fi_core_news_sm")
+def load_models():
+    # Load all spaCy models used by this script
+    models = []
+    missing_models = []
+
+    for model_name in SPACY_MODEL_NAMES:
+        try:
+            models.append(spacy.load(model_name))
+            print(f"Loaded spaCy model: {model_name}")
+
+        except OSError:
+            missing_models.append(model_name)
+
+    # Give error if some model is missing from the venv
+    if missing_models:
+        install_commands = "\n".join(
+            f"python -m spacy download {model_name}"
+            for model_name in missing_models
+        )
+
+        raise OSError(
+            "Missing spaCy model(s): "
+            + ", ".join(missing_models)
+            + "\n\nInstall missing model(s) with:\n"
+            + install_commands
+        )
+
+    return models
 
 
 def load_json(path):
@@ -147,33 +180,38 @@ def add_regex_spans(text, spans):
             })
 
 
-def add_spacy_spans(text, spans, nlp):
-    # Find names, locations and organizations with spaCy
-    doc = nlp(text)
+def add_spacy_spans(text, spans, nlp_models):
+    # Find names, locations and organizations with all spaCy models
+    for nlp in nlp_models:
+        doc = nlp(text)
 
-    for ent in doc.ents:
-        # Clean entity text before checking it
-        ent_text = ent.text.strip(".,:;!? ").lower()
+        for ent in doc.ents:
+            # Clean entity text before checking it
+            ent_text = ent.text.strip(".,:;!? ").lower()
 
-        # Keep safe medical words visible
-        if ent_text in SAFE_SPACY_WORDS:
-            continue
+            # Keep safe medical words visible
+            if ent_text in SAFE_SPACY_WORDS:
+                continue
 
-        # Get replacement label
-        label = SPACY_LABELS.get(ent.label_)
+            # Get replacement label
+            label = SPACY_LABELS.get(ent.label_)
 
-        # Save entity span if it should be anonymized
-        if label:
-            spans.append({
-                "start": ent.start_char,
-                "end": ent.end_char,
-                "label": label,
-            })
+            # Save entity span if it should be anonymized
+            if label:
+                spans.append({
+                    "start": ent.start_char,
+                    "end": ent.end_char,
+                    "label": label,
+                })
 
 
 def clean_spans(spans):
     # Sort spans by start position and length
-    spans = sorted(spans, key=lambda item: (item["start"], -(item["end"] - item["start"])))
+    # If two spans start at the same position, keep the longer one first
+    spans = sorted(
+        spans,
+        key=lambda item: (item["start"], -(item["end"] - item["start"]))
+    )
 
     # Remove overlapping spans
     cleaned = []
@@ -187,15 +225,15 @@ def clean_spans(spans):
     return cleaned
 
 
-def find_sensitive_spans(text, nlp):
+def find_sensitive_spans(text, nlp_models):
     # Store sensitive text positions
     spans = []
 
     # Add regex matches
     add_regex_spans(text, spans)
 
-    # Add spaCy matches
-    add_spacy_spans(text, spans, nlp)
+    # Add spaCy matches from Finnish and multilingual models
+    add_spacy_spans(text, spans, nlp_models)
 
     # Return cleaned spans
     return clean_spans(spans)
@@ -251,7 +289,7 @@ def find_word_positions(text, words):
     return positions
 
 
-def anonymize_words(segment, spans, nlp):
+def anonymize_words(segment, spans, nlp_models):
     # Read word list
     words = segment.get("words", [])
 
@@ -270,7 +308,7 @@ def anonymize_words(segment, spans, nlp):
 
         # If word position was not found, check the word alone
         if position is None:
-            word_spans = find_sensitive_spans(word.get("word", ""), nlp)
+            word_spans = find_sensitive_spans(word.get("word", ""), nlp_models)
             word["word"] = replace_text(word.get("word", ""), word_spans)
             continue
 
@@ -292,30 +330,30 @@ def anonymize_words(segment, spans, nlp):
                 break
 
 
-def anonymize_segment(segment, nlp):
+def anonymize_segment(segment, nlp_models):
     # Read original segment text
     text = segment.get("text", "")
 
     # Find personal data
-    spans = find_sensitive_spans(text, nlp)
+    spans = find_sensitive_spans(text, nlp_models)
 
     # Anonymize word-level transcript first
-    anonymize_words(segment, spans, nlp)
+    anonymize_words(segment, spans, nlp_models)
 
     # Anonymize full segment text
     segment["text"] = replace_text(text, spans)
 
 
 def anonymize():
-    # Load Finnish NLP model
-    nlp = load_model()
+    # Load Finnish and multilingual NLP models
+    nlp_models = load_models()
 
     # Load original transcript
     transcript = load_json(INPUT_FILE)
 
     # Anonymize each segment
     for segment in transcript:
-        anonymize_segment(segment, nlp)
+        anonymize_segment(segment, nlp_models)
 
     # Save cleaned transcript as a new file
     save_json(transcript, OUTPUT_FILE)
