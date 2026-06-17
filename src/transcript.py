@@ -1,7 +1,7 @@
 # Transcribes data/input/audio.wav with WhisperX
 # Creates word-level timestamps and saves them to data/output/transcription.json
 # Usage:
-# source venvs/core/Scripts/activate
+# source venvs/transcript/Scripts/activate
 # python run/run_transcript.py
 
 from pathlib import Path
