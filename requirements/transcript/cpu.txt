@@ -3,11 +3,11 @@
 # The starter scripts install the full PyTorch stack separately.
 
 whisperx
-
-# Optional / planned PII anonymization support
 presidio-analyzer
 presidio-anonymizer
-spacy
 regex
 phonenumbers
 python-dateutil
+spacy==3.8.14
+fi-core-news-md @ https://github.com/explosion/spacy-models/releases/download/fi_core_news_md-3.8.0/fi_core_news_md-3.8.0-py3-none-any.whl
+xx-ent-wiki-sm @ https://github.com/explosion/spacy-models/releases/download/xx_ent_wiki_sm-3.8.0/xx_ent_wiki_sm-3.8.0-py3-none-any.whl

@@ -6,5 +6,8 @@ python-dotenv
 pydantic
 numpy
 tqdm
-streamlit
+streamlit==1.48.1
 pandas
+Pillow
+streamlit-drawable-canvas==0.9.3
+google-genai
