@@ -627,10 +627,6 @@ def show_video_report():
     else:
         st.info("No suggested review ranges.")
 
-    with st.expander("Show debug report details"):
-        st.json(review.get("debug_ranges", {}))
-
-
 def show_upload_section():
     # Show video upload section
     st.write("## Upload video")
