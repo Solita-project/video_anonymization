@@ -21,9 +21,29 @@ import streamlit as st
 try:
     from streamlit.elements import image as st_image
     from streamlit.elements.lib.image_utils import image_to_url
+    from streamlit.elements.lib.layout_utils import LayoutConfig
 
-    if not hasattr(st_image, "image_to_url"):
-        st_image.image_to_url = image_to_url
+    # streamlit-drawable-canvas still calls Streamlit's old image_to_url
+    # signature. Newer Streamlit expects a LayoutConfig instead of width.
+    def image_to_url_compat(
+        image,
+        width,
+        clamp,
+        channels,
+        output_format,
+        image_id,
+    ):
+        layout_config = LayoutConfig(width=width)
+        return image_to_url(
+            image,
+            layout_config,
+            clamp,
+            channels,
+            output_format,
+            image_id,
+        )
+
+    st_image.image_to_url = image_to_url_compat
 
 except Exception:
     pass
@@ -42,6 +62,7 @@ OUTPUT_DIR = ROOT_DIR / "data" / "output"
 INPUT_VIDEO_FILE = INPUT_DIR / "video.mp4"
 BLURRED_VIDEO_FILE = OUTPUT_DIR / "video_blurred.mp4"
 BLURRED_PREVIEW_FILE = OUTPUT_DIR / "video_blurred_preview.mp4"
+VIDEO_REPORT_FILE = OUTPUT_DIR / "video_report.json"
 CLEANED_TRANSCRIPT_FILE = OUTPUT_DIR / "cleaned_transcription.json"
 FINAL_VIDEO_FILE = OUTPUT_DIR / "final_video.mp4"
 
@@ -187,8 +208,8 @@ def clean_files_on_new_session():
 
 
 def resolve_ffmpeg():
-    # Use local ffmpeg.exe if it exists
-    if LOCAL_FFMPEG.exists():
+    # Use bundled Windows ffmpeg only on Windows.
+    if os.name == "nt" and LOCAL_FFMPEG.exists():
         return str(LOCAL_FFMPEG)
 
     # Otherwise use ffmpeg from system PATH
@@ -197,7 +218,9 @@ def resolve_ffmpeg():
     if system_ffmpeg:
         return system_ffmpeg
 
-    raise RuntimeError("ffmpeg not found")
+    raise RuntimeError(
+        "ffmpeg not found. Install ffmpeg or add it to PATH before creating browser video previews."
+    )
 
 
 def create_browser_preview(input_file, output_file):
@@ -226,10 +249,29 @@ def create_browser_preview(input_file, output_file):
     subprocess.run(command, check=True)
 
 
-def run_video_anonymization():
+def run_video_anonymization(profile_name):
     # Run automatic video anonymization and create a browser-friendly preview
-    run_script("Anonymize video", "run/run_video.py", show_status=False)
-    create_browser_preview(BLURRED_VIDEO_FILE, BLURRED_PREVIEW_FILE)
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT_DIR / "run" / "run_video.py"),
+            "--profile",
+            profile_name,
+        ],
+        cwd=ROOT_DIR,
+        env=os.environ.copy(),
+    )
+
+    if result.returncode != 0:
+        st.error("Step failed: Anonymize video")
+        st.error("Check the terminal for details.")
+        st.stop()
+
+    try:
+        create_browser_preview(BLURRED_VIDEO_FILE, BLURRED_PREVIEW_FILE)
+    except RuntimeError as error:
+        st.error(str(error))
+        st.stop()
 
 
 def save_uploaded_video(uploaded_file):
@@ -244,6 +286,63 @@ def load_cleaned_transcript():
     # Load cleaned_transcription.json
     with open(CLEANED_TRANSCRIPT_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def load_video_report():
+    # Load video review report if it exists
+    if not VIDEO_REPORT_FILE.exists():
+        return None
+
+    with open(VIDEO_REPORT_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def get_processed_video_duration():
+    # Use the report to limit manual blur inputs to the processed video length.
+    report = load_video_report()
+
+    if report is None:
+        return None
+
+    duration = report.get("processed_duration_seconds")
+
+    if duration:
+        return float(duration)
+
+    processed_frames = report.get("processed_frames")
+    fps = report.get("fps")
+
+    if not processed_frames or not fps:
+        return None
+
+    return float(processed_frames) / float(fps)
+
+
+def get_last_extractable_frame_time():
+    # Frame extraction needs an actual frame timestamp, not the end boundary.
+    report = load_video_report()
+
+    if report is None:
+        return None
+
+    processed_frames = report.get("processed_frames")
+    fps = report.get("fps")
+
+    if not processed_frames or not fps:
+        return None
+
+    return max(0.0, (float(processed_frames) - 1.0) / float(fps))
+
+
+def clamp_time_input_state(key, max_value):
+    # Clamp old Streamlit widget state when a new shorter video/report is loaded.
+    if max_value is None:
+        return
+
+    current_value = st.session_state.get(key)
+
+    if current_value is not None and current_value > max_value:
+        st.session_state[key] = max_value
 
 
 def save_cleaned_transcript(data):
@@ -435,15 +534,19 @@ def show_saved_blur_areas():
 
     for index, annotation in enumerate(annotations):
         start_time = float(annotation["start_time"])
-        end_time = float(annotation["end_time"])
+        keep_blur_seconds = annotation.get("keep_blur_seconds")
         x = annotation["x"]
         y = annotation["y"]
         width = annotation["width"]
         height = annotation["height"]
 
+        if keep_blur_seconds is None:
+            end_time = float(annotation["end_time"])
+            keep_blur_seconds = end_time - start_time
+
         st.write(
             f"Area {index + 1}: "
-            f"{start_time:.1f}s–{end_time:.1f}s, "
+            f"start={start_time:.1f}s, keep={float(keep_blur_seconds):.1f}s, "
             f"x={x}, y={y}, width={width}, height={height}"
         )
 
@@ -470,6 +573,64 @@ def show_transcript_status(status):
                 st.code(log_text)
 
 
+def show_video_report():
+    # Show structured video review report below the anonymized video
+    report = load_video_report()
+
+    if report is None:
+        st.info("Video review report was not found.")
+        return
+
+    review = report.get("review", {})
+    summary = review.get("summary", {})
+    warnings = review.get("warnings", [])
+    suggested_ranges = review.get("suggested_ranges", [])
+
+    st.write("### Video review report")
+
+    st.write(
+        f"Profile: `{report.get('profile', 'unknown')}`  "
+        f"| Processed frames: `{report.get('processed_frames', 0)}` / `{report.get('total_frames', 0)}`"
+    )
+
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric(
+        "Suggested ranges",
+        summary.get("suggested_review_range_count", 0),
+    )
+    col2.metric(
+        "Review seconds",
+        summary.get("suggested_review_duration_seconds", 0),
+    )
+    col3.metric(
+        "Warnings",
+        summary.get("warning_count", 0),
+    )
+
+    if warnings:
+        for warning in warnings:
+            st.warning(warning)
+    else:
+        st.success("No priority review warnings in this report.")
+
+    if suggested_ranges:
+        st.write("#### Suggested review ranges")
+
+        for index, item in enumerate(suggested_ranges, start=1):
+            st.write(
+                f"{index}. `{item.get('priority', 'unknown')}` "
+                f"{item.get('start_time_seconds')}s–{item.get('end_time_seconds')}s: "
+                f"{item.get('reason', '')}"
+            )
+            st.caption(item.get("suggested_action", ""))
+    else:
+        st.info("No suggested review ranges.")
+
+    with st.expander("Show debug report details"):
+        st.json(review.get("debug_ranges", {}))
+
+
 def show_upload_section():
     # Show video upload section
     st.write("## Upload video")
@@ -477,6 +638,13 @@ def show_upload_section():
     uploaded_file = st.file_uploader(
         "Choose a video file",
         type=["mp4"],
+    )
+
+    profile_name = st.selectbox(
+        "Video anonymization profile",
+        options=["cpr", "intubation"],
+        format_func=lambda value: "CPR" if value == "cpr" else "Intubation",
+        key="video_profile",
     )
 
     if not uploaded_file:
@@ -490,7 +658,7 @@ def show_upload_section():
         save_uploaded_video(uploaded_file)
 
         with st.spinner("Running video anonymization..."):
-            run_video_anonymization()
+            run_video_anonymization(profile_name)
 
         start_transcript_process()
 
@@ -510,6 +678,8 @@ def show_video_section(status):
     else:
         st.warning("Anonymized video was not found.")
         return
+
+    show_video_report()
 
     col1, col2 = st.columns(2)
 
@@ -536,15 +706,36 @@ def show_manual_blur_section():
     st.write("---")
     st.write("## Improve video anonymization")
 
-    frame_time = st.number_input(
-        "Frame time in seconds",
-        min_value=0.0,
-        step=0.1,
-        format="%.1f",
-        key="manual_frame_time",
-    )
+    video_duration = get_processed_video_duration()
+    last_frame_time = get_last_extractable_frame_time()
+
+    if video_duration is not None:
+        st.caption(f"Processed video duration: {video_duration:.1f} seconds")
+
+    if last_frame_time is not None:
+        clamp_time_input_state("manual_frame_time", last_frame_time)
+
+        frame_time = st.slider(
+            "Frame time in seconds",
+            min_value=0.0,
+            max_value=float(last_frame_time),
+            step=0.1,
+            format="%.1f",
+            key="manual_frame_time",
+        )
+    else:
+        frame_time = st.number_input(
+            "Frame time in seconds",
+            min_value=0.0,
+            step=0.1,
+            format="%.1f",
+            key="manual_frame_time",
+        )
 
     if st.button("Show frame"):
+        if MANUAL_BLUR_FRAME_FILE.exists():
+            MANUAL_BLUR_FRAME_FILE.unlink()
+
         run_manual_blur_command(
             ["extract", "--time", str(frame_time)],
             "Extract frame",
@@ -569,23 +760,49 @@ def show_manual_blur_section():
             key=f"manual_blur_canvas_{st.session_state.canvas_key_version}",
         )
 
-        start_time = st.number_input(
-            "Start time in seconds",
-            min_value=0.0,
-            value=max(0.0, frame_time - 1.0),
-            step=0.1,
-            format="%.1f",
-            key="manual_blur_start_time",
-        )
+        default_start_time = frame_time
 
-        end_time = st.number_input(
-            "End time in seconds",
-            min_value=0.0,
-            value=frame_time + 1.0,
-            step=0.1,
-            format="%.1f",
-            key="manual_blur_end_time",
-        )
+        if video_duration is not None:
+            default_start_time = min(default_start_time, video_duration)
+
+        clamp_time_input_state("manual_blur_start_time", video_duration)
+
+        start_time_kwargs = {
+            "label": "Start time in seconds",
+            "min_value": 0.0,
+            "value": default_start_time,
+            "step": 0.1,
+            "format": "%.1f",
+            "key": "manual_blur_start_time",
+        }
+
+        if video_duration is not None:
+            start_time_kwargs["max_value"] = video_duration
+
+        start_time = st.number_input(**start_time_kwargs)
+
+        max_keep_seconds = None
+        if video_duration is not None:
+            max_keep_seconds = max(0.0, video_duration - start_time)
+            clamp_time_input_state("manual_blur_keep_seconds", max_keep_seconds)
+
+        if max_keep_seconds is not None and max_keep_seconds < 0.1:
+            st.warning("Start time is too close to the end of the processed video. Choose an earlier start time.")
+            return
+
+        keep_seconds_kwargs = {
+            "label": "Keep this blur for seconds",
+            "min_value": 0.1,
+            "value": min(1.0, max_keep_seconds) if max_keep_seconds is not None else 1.0,
+            "step": 0.1,
+            "format": "%.1f",
+            "key": "manual_blur_keep_seconds",
+        }
+
+        if max_keep_seconds is not None:
+            keep_seconds_kwargs["max_value"] = max_keep_seconds
+
+        keep_blur_seconds = st.number_input(**keep_seconds_kwargs)
 
         blur_strength = st.slider(
             "Blur strength",
@@ -596,8 +813,13 @@ def show_manual_blur_section():
         )
 
         if st.button("Save blur area"):
+            end_time = start_time + keep_blur_seconds
+
+            if video_duration is not None:
+                end_time = min(end_time, video_duration)
+
             if end_time <= start_time:
-                st.error("End time must be greater than start time.")
+                st.error("Blur duration must be greater than zero.")
                 return
 
             rectangle = get_latest_canvas_rectangle(canvas_result)
@@ -612,6 +834,7 @@ def show_manual_blur_section():
             annotation = {
                 "start_time": float(start_time),
                 "end_time": float(end_time),
+                "keep_blur_seconds": float(keep_blur_seconds),
                 "x": int(round(rectangle["left"] * scale_x)),
                 "y": int(round(rectangle["top"] * scale_y)),
                 "width": int(round(rectangle["width"] * scale_x)),

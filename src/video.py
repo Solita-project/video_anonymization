@@ -259,6 +259,7 @@ def process_video(
         "output_video_path":str(output_video_path),
         "debug_output_video_path":str(debug_output_video_path),
         "total_frames":total_frames,
+        "fps":fps,
         "processed_frames":0,
         "frames_with_face_detection":0,
         "frames_with_head_detection":0,
@@ -389,6 +390,7 @@ def process_video(
     elapsed_time = end_time - start_time
     report["runtime_seconds"] = round(elapsed_time,2)
     report["runtime_minutes"] = round(elapsed_time/60,2)
+    report["processed_duration_seconds"] = round(report["processed_frames"] / fps, 2) if fps else 0
 
     report.update(build_review_section(report, fps))
 

@@ -4,6 +4,7 @@
 # python run/run_video.py
 
 from pathlib import Path
+import argparse
 import subprocess
 import sys
 
@@ -30,12 +31,24 @@ def get_video_python():
 
 def main():
     # Run src.video as a module so imports like src.video_config work
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--profile",
+        choices=["cpr", "intubation"],
+        default="cpr",
+        help="Video anonymization profile",
+    )
+    args = parser.parse_args()
+
     video_python = get_video_python()
 
     command = [
         str(video_python),
-        "-m",
-        "src.video",
+        "-c",
+        (
+            "from src.video import process_video; "
+            f"process_video(profile_name={args.profile!r})"
+        ),
     ]
 
     result = subprocess.run(
