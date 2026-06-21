@@ -1,7 +1,8 @@
-# Wrapper for video anonymization.
-# This script runs src.video as a module with the video virtual environment.
+# Wrapper for manual video blur.
+# This script runs src/manual_video_blur.py with the video virtual environment.
 # Usage:
-# python run/run_video.py
+# python run/run_manual_video_blur.py extract --time 12.5
+# python run/run_manual_video_blur.py apply
 
 from pathlib import Path
 import subprocess
@@ -10,6 +11,9 @@ import sys
 
 # Find project root
 ROOT_DIR = Path(__file__).resolve().parent.parent
+
+# Define script path
+SCRIPT_FILE = ROOT_DIR / "src" / "manual_video_blur.py"
 
 # Define video virtual environment Python paths
 WINDOWS_VIDEO_PYTHON = ROOT_DIR / "venvs" / "video" / "Scripts" / "python.exe"
@@ -29,14 +33,13 @@ def get_video_python():
 
 
 def main():
-    # Run src.video as a module so imports like src.video_config work
+    # Pass all command line arguments to src/manual_video_blur.py
     video_python = get_video_python()
 
     command = [
         str(video_python),
-        "-m",
-        "src.video",
-    ]
+        str(SCRIPT_FILE),
+    ] + sys.argv[1:]
 
     result = subprocess.run(
         command,
