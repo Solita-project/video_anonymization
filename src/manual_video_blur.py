@@ -96,6 +96,19 @@ def blur_area(frame, annotation):
     return frame
 
 
+def get_annotation_time_range(annotation):
+    # Support both explicit end_time and start_time + keep_blur_seconds.
+    start_time = float(annotation["start_time"])
+
+    if "end_time" in annotation:
+        end_time = float(annotation["end_time"])
+    else:
+        keep_blur_seconds = float(annotation["keep_blur_seconds"])
+        end_time = start_time + keep_blur_seconds
+
+    return start_time, end_time
+
+
 def extract_frame(timestamp):
     # Extract one frame from video_blurred.mp4 at the selected timestamp
     if not VIDEO_FILE.exists():
@@ -171,8 +184,7 @@ def apply_manual_blurs():
         current_time = frame_index / fps
 
         for annotation in annotations:
-            start_time = float(annotation["start_time"])
-            end_time = float(annotation["end_time"])
+            start_time, end_time = get_annotation_time_range(annotation)
 
             if start_time <= current_time <= end_time:
                 frame = blur_area(frame, annotation)
