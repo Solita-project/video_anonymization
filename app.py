@@ -6,6 +6,7 @@
 # streamlit run app.py
 
 from pathlib import Path
+import inspect
 import json
 import os
 import shutil
@@ -14,33 +15,72 @@ import sys
 import time
 
 from PIL import Image
-import pandas as pd
 import streamlit as st
 
 # Compatibility fix for streamlit-drawable-canvas with newer Streamlit versions.
+# streamlit-drawable-canvas expects image_to_url in streamlit.elements.image.
+# Newer Streamlit versions moved it to streamlit.elements.lib.image_utils
+# and changed how image width is handled.
 try:
     from streamlit.elements import image as st_image
-    from streamlit.elements.lib.image_utils import image_to_url
-    from streamlit.elements.lib.layout_utils import LayoutConfig
+    from streamlit.elements.lib.image_utils import image_to_url as streamlit_image_to_url
 
-    # streamlit-drawable-canvas still calls Streamlit's old image_to_url
-    # signature. Newer Streamlit expects a LayoutConfig instead of width.
     def image_to_url_compat(
         image,
-        width,
-        clamp,
-        channels,
-        output_format,
-        image_id,
+        width=-1,
+        clamp=True,
+        channels="RGB",
+        output_format="PNG",
+        image_id="",
+        *args,
+        **kwargs,
     ):
-        layout_config = LayoutConfig(width=width)
-        return image_to_url(
+        # streamlit-drawable-canvas passes width using an older Streamlit API.
+        # Make sure width is a normal integer before calling Streamlit's current function.
+        try:
+            width = int(width)
+        except Exception:
+            width_value = getattr(width, "width", -1)
+
+            try:
+                width = int(width_value)
+            except Exception:
+                width = -1
+
+        signature = inspect.signature(streamlit_image_to_url)
+        supported_parameters = signature.parameters
+
+        call_kwargs = {}
+
+        if "layout_config" in supported_parameters:
+            try:
+                from streamlit.elements.lib.layout_utils import LayoutConfig
+
+                call_kwargs["layout_config"] = LayoutConfig(width=width)
+            except Exception:
+                pass
+
+        if "width" in supported_parameters:
+            call_kwargs["width"] = width
+
+        if "clamp" in supported_parameters:
+            call_kwargs["clamp"] = clamp
+
+        if "channels" in supported_parameters:
+            call_kwargs["channels"] = channels
+
+        if "output_format" in supported_parameters:
+            call_kwargs["output_format"] = output_format
+
+        if "image_format" in supported_parameters:
+            call_kwargs["image_format"] = output_format
+
+        if "image_id" in supported_parameters:
+            call_kwargs["image_id"] = image_id
+
+        return streamlit_image_to_url(
             image,
-            layout_config,
-            clamp,
-            channels,
-            output_format,
-            image_id,
+            **call_kwargs,
         )
 
     st_image.image_to_url = image_to_url_compat
@@ -49,7 +89,7 @@ except Exception:
     pass
 
 from streamlit_drawable_canvas import st_canvas
-
+from src.transcript_review_ui import show_transcript_review_section as show_transcript_review_ui
 
 # Find project root
 ROOT_DIR = Path(__file__).resolve().parent
@@ -63,6 +103,7 @@ INPUT_VIDEO_FILE = INPUT_DIR / "video.mp4"
 BLURRED_VIDEO_FILE = OUTPUT_DIR / "video_blurred.mp4"
 BLURRED_PREVIEW_FILE = OUTPUT_DIR / "video_blurred_preview.mp4"
 VIDEO_REPORT_FILE = OUTPUT_DIR / "video_report.json"
+ORIGINAL_TRANSCRIPT_FILE = OUTPUT_DIR / "transcription.json"
 CLEANED_TRANSCRIPT_FILE = OUTPUT_DIR / "cleaned_transcription.json"
 FINAL_VIDEO_FILE = OUTPUT_DIR / "final_video.mp4"
 
@@ -81,6 +122,7 @@ LOCAL_FFMPEG = ROOT_DIR / "tools" / "ffmpeg.exe"
 # Replacement labels shown in the manual review step
 REPLACEMENTS = [
     "KEEP",
+    "RESTORE_ORIGINAL",
     "REMOVE",
     "NIMI",
     "HENKILÖTUNNUS",
@@ -92,9 +134,6 @@ REPLACEMENTS = [
     "SIJAINTI",
     "ORGANISAATIO",
 ]
-
-# Labels that should be collapsed if repeated in a row
-SENSITIVE_LABELS = set(REPLACEMENTS) - {"KEEP", "REMOVE"}
 
 
 def hide_streamlit_buttons():
@@ -189,11 +228,21 @@ def reset_app_state():
     if "review_data" in st.session_state:
         del st.session_state.review_data
 
+    if "original_review_data" in st.session_state:
+        del st.session_state.original_review_data
+
     if "transcript_process" in st.session_state:
         del st.session_state.transcript_process
 
-    if "selected_segment" in st.session_state:
-        del st.session_state.selected_segment
+    for key in [
+    "active_review_segment",
+    "reviewed_segments",
+    "selected_segment",
+    "automatic_review_done",
+    "editing_segment",
+    ]:
+        if key in st.session_state:
+            del st.session_state[key]
 
 
 def clean_files_on_new_session():
@@ -288,6 +337,14 @@ def load_cleaned_transcript():
         return json.load(f)
 
 
+def save_cleaned_transcript(data):
+    # Save cleaned_transcription.json
+    CLEANED_TRANSCRIPT_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(CLEANED_TRANSCRIPT_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+
 def load_video_report():
     # Load video review report if it exists
     if not VIDEO_REPORT_FILE.exists():
@@ -343,14 +400,6 @@ def clamp_time_input_state(key, max_value):
 
     if current_value is not None and current_value > max_value:
         st.session_state[key] = max_value
-
-
-def save_cleaned_transcript(data):
-    # Save cleaned_transcription.json
-    CLEANED_TRANSCRIPT_FILE.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(CLEANED_TRANSCRIPT_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=4, ensure_ascii=False)
 
 
 def start_transcript_process():
@@ -627,6 +676,7 @@ def show_video_report():
     else:
         st.info("No suggested review ranges.")
 
+
 def show_upload_section():
     # Show video upload section
     st.write("## Upload video")
@@ -891,182 +941,6 @@ def handle_video_decision(status):
     st.rerun()
 
 
-def clean_text(words):
-    # Build readable text from word list
-    text_words = []
-
-    for word in words:
-        word_text = word.get("word", "").strip()
-
-        if word_text:
-            text_words.append(word_text)
-
-    text = " ".join(text_words)
-
-    # Fix spaces before punctuation
-    text = text.replace(" ,", ",")
-    text = text.replace(" .", ".")
-    text = text.replace(" !", "!")
-    text = text.replace(" ?", "?")
-    text = text.replace(" :", ":")
-    text = text.replace(" ;", ";")
-
-    return text.strip()
-
-
-def make_editor_rows(segment):
-    # Convert segment words into table rows
-    rows = []
-
-    for word in segment.get("words", []):
-        word_text = word.get("word", "")
-
-        if word_text in SENSITIVE_LABELS:
-            action = word_text
-        elif word_text == "":
-            action = "REMOVE"
-        else:
-            action = "KEEP"
-
-        rows.append({
-            "word": word_text,
-            "action": action,
-        })
-
-    return rows
-
-
-def apply_editor_rows(segment, edited_rows):
-    # Apply manual word edits and replacements back to the segment
-    words = segment.get("words", [])
-    last_sensitive_label = None
-
-    for index, row in enumerate(edited_rows):
-        if index >= len(words):
-            continue
-
-        edited_word = str(row["word"]).strip()
-        action = row["action"]
-
-        if action == "KEEP":
-            new_word = edited_word
-        elif action == "REMOVE":
-            new_word = ""
-        else:
-            new_word = action
-
-        # Collapse repeated labels, for example NIMI NIMI -> NIMI
-        if new_word in SENSITIVE_LABELS:
-            if new_word == last_sensitive_label:
-                new_word = ""
-            else:
-                last_sensitive_label = new_word
-        elif new_word:
-            last_sensitive_label = None
-
-        words[index]["word"] = new_word
-
-    segment["words"] = words
-    segment["text"] = clean_text(words)
-
-
-def show_updated_segments():
-    # Show transcript segments updated by the user
-    updated_segments = st.session_state.get("updated_segments", {})
-
-    if not updated_segments:
-        return
-
-    st.write("### Updated text segments")
-
-    for index, text in updated_segments.items():
-        st.write(f"**Segment {index + 1}**")
-        st.info(text)
-
-
-def show_transcript_review_section():
-    # Show manual transcript review section
-    if not st.session_state.get("video_approved"):
-        return
-
-    if not load_review_data_if_ready():
-        return
-
-    st.write("---")
-    st.write("## Review anonymized transcript")
-
-    data = st.session_state.review_data
-
-    if not data:
-        st.warning("No transcript data found.")
-        return
-
-    if "selected_segment" not in st.session_state:
-        st.session_state.selected_segment = 0
-
-    segment_options = []
-
-    for index, segment in enumerate(data):
-        text = segment.get("text", "")
-        preview = text[:140] + "..." if len(text) > 140 else text
-        segment_options.append(f"Segment {index + 1}: {preview}")
-
-    selected = st.selectbox(
-        "Select segment to edit",
-        options=list(range(len(segment_options))),
-        format_func=lambda index: segment_options[index],
-        key="selected_segment",
-    )
-
-    segment = data[selected]
-
-    st.write("### Current selected segment")
-    st.info(segment.get("text", ""))
-
-    rows = make_editor_rows(segment)
-    df = pd.DataFrame(rows)
-
-    edited_df = st.data_editor(
-        df,
-        hide_index=True,
-        num_rows="fixed",
-        column_config={
-            "word": st.column_config.TextColumn("Word"),
-            "action": st.column_config.SelectboxColumn(
-                "Action",
-                options=REPLACEMENTS,
-            ),
-        },
-        key=f"editor_{st.session_state.review_editor_version}_{selected}",
-    )
-
-    if st.button("Save changes"):
-        edited_rows = edited_df.to_dict("records")
-        apply_editor_rows(segment, edited_rows)
-
-        st.session_state.review_data[selected] = segment
-        save_cleaned_transcript(st.session_state.review_data)
-
-        st.session_state.updated_segments[selected] = segment.get("text", "")
-
-        st.success("Changes saved.")
-
-    show_updated_segments()
-
-    st.write("---")
-    st.write("## Continue anonymization")
-
-    if st.button("Continue anonymization"):
-        save_cleaned_transcript(st.session_state.review_data)
-
-        with st.spinner("Running the rest of the anonymization..."):
-            run_final_pipeline()
-
-        st.session_state.page = "done"
-        st.success("Anonymization complete.")
-        show_final_video()
-
-
 def run_final_pipeline():
     # Run the rest of the pipeline after manual review
     run_script("Detect speakers", "run/run_speaker.py")
@@ -1095,7 +969,6 @@ def show_final_video():
         mime="video/mp4",
     )
 
-
 def show_processing_page():
     # Show video review first, then manual blur tools and transcript review when available
     status = get_transcript_status()
@@ -1103,7 +976,22 @@ def show_processing_page():
     show_video_section(status)
     show_manual_blur_section()
     handle_video_decision(status)
-    show_transcript_review_section()
+
+    continue_clicked = show_transcript_review_ui(
+        transcript_file=CLEANED_TRANSCRIPT_FILE,
+        original_transcript_file=ORIGINAL_TRANSCRIPT_FILE,
+        replacements=REPLACEMENTS,
+    )
+
+    if continue_clicked:
+        save_cleaned_transcript(st.session_state.review_data)
+
+        with st.spinner("Running the rest of the anonymization..."):
+            run_final_pipeline()
+
+        st.session_state.page = "done"
+        st.success("Anonymization complete.")
+        show_final_video()
 
 
 def initialize_session_state():
