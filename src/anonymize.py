@@ -21,12 +21,10 @@ INPUT_FILE = ROOT_DIR / "data" / "output" / "transcription.json"
 OUTPUT_FILE = ROOT_DIR / "data" / "output" / "cleaned_transcription.json"
 
 
-# spaCy models used for entity detection
+# spaCy model used for entity detection
 # fi_core_news_md = Finnish model
-# xx_ent_wiki_sm = multilingual entity model
 SPACY_MODEL_NAMES = [
     "fi_core_news_md",
-    "xx_ent_wiki_sm",
 ]
 
 
@@ -112,6 +110,45 @@ SAFE_SPACY_WORDS = {
     "vastasyntynyt",
 }
 
+def is_single_word_entity(ent):
+    # Check if the spaCy entity contains only one real word
+    tokens = [
+        token
+        for token in ent
+        if not token.is_punct and not token.is_space
+    ]
+
+    return len(tokens) == 1
+
+
+def is_at_segment_start(ent):
+    # Check if the entity starts at the very beginning of the segment
+    return ent.start_char == 0
+
+
+def should_skip_spacy_entity(ent):
+    # Skip common false positives from spaCy
+    # ASR transcript segments often start with a capital letter
+    # spaCy may incorrectly mark that first word as a name or location
+    ent_text = ent.text.strip(".,:;!? ")
+    ent_lower = ent_text.lower()
+
+    if not ent_text:
+        return True
+
+    # Keep safe medical/general words visible
+    if ent_lower in SAFE_SPACY_WORDS:
+        return True
+
+    # Skip very short one-word entities
+    if len(ent_text) < 3:
+        return True
+
+    # Skip one-word entities at the beginning of a segment
+    if is_at_segment_start(ent) and is_single_word_entity(ent):
+        return True
+
+    return False
 
 def load_models():
     # Load all spaCy models used by this script
@@ -181,28 +218,27 @@ def add_regex_spans(text, spans):
 
 
 def add_spacy_spans(text, spans, nlp_models):
-    # Find names, locations and organizations with all spaCy models
+    # Find names, locations and organizations with spaCy models
+    # The checks below make spaCy less aggressive to reduce false positives
     for nlp in nlp_models:
         doc = nlp(text)
 
         for ent in doc.ents:
-            # Clean entity text before checking it
-            ent_text = ent.text.strip(".,:;!? ").lower()
-
-            # Keep safe medical words visible
-            if ent_text in SAFE_SPACY_WORDS:
-                continue
-
             # Get replacement label
             label = SPACY_LABELS.get(ent.label_)
 
-            # Save entity span if it should be anonymized
-            if label:
-                spans.append({
-                    "start": ent.start_char,
-                    "end": ent.end_char,
-                    "label": label,
-                })
+            if not label:
+                continue
+
+            # Skip likely false positives
+            if should_skip_spacy_entity(ent):
+                continue
+
+            spans.append({
+                "start": ent.start_char,
+                "end": ent.end_char,
+                "label": label,
+            })
 
 
 def clean_spans(spans):
@@ -306,9 +342,14 @@ def anonymize_words(segment, spans, nlp_models):
     for index, word in enumerate(words):
         position = positions[index]
 
-        # If word position was not found, check the word alone
+        # If word position was not found, do not run spaCy on the word alone
+        # (running NER on a single isolated word causes many false positives,
+        # especially with capitalized words)
         if position is None:
-            word_spans = find_sensitive_spans(word.get("word", ""), nlp_models)
+            word_spans = []
+            add_regex_spans(word.get("word", ""), word_spans)
+            word_spans = clean_spans(word_spans)
+
             word["word"] = replace_text(word.get("word", ""), word_spans)
             continue
 
