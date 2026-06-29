@@ -4,7 +4,6 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 INPUT_VIDEO_PATH = ROOT_DIR / "data" / "input" / "video.mp4"
 OUTPUT_VIDEO_PATH = ROOT_DIR / "data" / "output" / "video_blurred.mp4"
 DEBUG_OUTPUT_VIDEO_PATH = ROOT_DIR / "data" / "output" / "video_debug_boxes.mp4"
-REPORT_OUTPUT_PATH = ROOT_DIR / "data" / "output" / "video_report.json"
 
 FACE_MODEL_PATH = ROOT_DIR / "models" / "yolov8s-face-lindevs.pt"
 OBJECT_MODEL_PATH = ROOT_DIR / "models" / "yolov8s.pt"
@@ -30,7 +29,6 @@ PROFILES = {
         "object_every_n_frames": 3,
         "blur_kernel_size": (99, 99),
         "blur_sigma": 30,
-        "manual_review_required": True,
     },
     "intubation":{
         "description": "Protect identity while preserving procedure context where possible.",
@@ -49,6 +47,5 @@ PROFILES = {
         "object_every_n_frames": 3,
         "blur_kernel_size": (99, 99),
         "blur_sigma": 30,
-        "manual_review_required": True,
     }
 }

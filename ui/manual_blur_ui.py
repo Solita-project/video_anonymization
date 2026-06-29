@@ -197,14 +197,37 @@ def show_manual_blur_section(
     if last_frame_time is not None:
         clamp_time_input_state("manual_frame_time", last_frame_time)
 
-        frame_time = st.slider(
-            "Frame time in seconds",
-            min_value=0.0,
-            max_value=float(last_frame_time),
-            step=0.1,
-            format="%.1f",
-            key="manual_frame_time",
-        )
+        if "manual_frame_time" not in st.session_state:
+            st.session_state.manual_frame_time = 0.0
+
+        frame_step = 0.1
+        st.write("Frame time in seconds")
+        time_columns = st.columns([1, 14, 1])
+
+        with time_columns[0]:
+            if st.button("-0.1s", key="manual_frame_time_minus", use_container_width=True):
+                st.session_state.manual_frame_time = max(
+                    0.0,
+                    round(float(st.session_state.manual_frame_time) - frame_step, 1),
+                )
+
+        with time_columns[2]:
+            if st.button("+0.1s", key="manual_frame_time_plus", use_container_width=True):
+                st.session_state.manual_frame_time = min(
+                    float(last_frame_time),
+                    round(float(st.session_state.manual_frame_time) + frame_step, 1),
+                )
+
+        with time_columns[1]:
+            frame_time = st.slider(
+                "Frame time in seconds",
+                min_value=0.0,
+                max_value=float(last_frame_time),
+                step=frame_step,
+                format="%.1f",
+                key="manual_frame_time",
+                label_visibility="collapsed",
+            )
     else:
         frame_time = st.number_input(
             "Frame time in seconds",
@@ -242,26 +265,37 @@ def show_manual_blur_section(
             key=f"manual_blur_canvas_{st.session_state.canvas_key_version}",
         )
 
-        default_start_time = frame_time
+        st.write("### Blur settings")
+        st.caption(f"Start time: selected frame time {frame_time:.1f}s")
 
-        if video_duration is not None:
-            default_start_time = min(default_start_time, video_duration)
+        use_custom_start_time = st.checkbox(
+            "Use a different start time",
+            key="manual_blur_use_custom_start_time",
+        )
 
-        clamp_time_input_state("manual_blur_start_time", video_duration)
+        start_time = frame_time
 
-        start_time_kwargs = {
-            "label": "Start time in seconds",
-            "min_value": 0.0,
-            "value": default_start_time,
-            "step": 0.1,
-            "format": "%.1f",
-            "key": "manual_blur_start_time",
-        }
+        if use_custom_start_time:
+            default_start_time = frame_time
 
-        if video_duration is not None:
-            start_time_kwargs["max_value"] = video_duration
+            if video_duration is not None:
+                default_start_time = min(default_start_time, video_duration)
 
-        start_time = st.number_input(**start_time_kwargs)
+            clamp_time_input_state("manual_blur_start_time", video_duration)
+
+            start_time_kwargs = {
+                "label": "Start time in seconds",
+                "min_value": 0.0,
+                "value": default_start_time,
+                "step": 0.1,
+                "format": "%.1f",
+                "key": "manual_blur_start_time",
+            }
+
+            if video_duration is not None:
+                start_time_kwargs["max_value"] = video_duration
+
+            start_time = st.number_input(**start_time_kwargs)
 
         max_keep_seconds = None
         if video_duration is not None:
