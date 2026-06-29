@@ -127,9 +127,9 @@ def is_at_segment_start(ent):
 
 
 def should_skip_spacy_entity(ent):
-    # Skip common false positives from spaCy
-    # ASR transcript segments often start with a capital letter
-    # spaCy may incorrectly mark that first word as a name or location
+    # Skip common false positives from spaCy:
+    # transcript segments often start with a capital letter
+    # spaCy may incorrectly mark that first word
     ent_text = ent.text.strip(".,:;!? ")
     ent_lower = ent_text.lower()
 
@@ -151,7 +151,7 @@ def should_skip_spacy_entity(ent):
     return False
 
 def load_models():
-    # Load all spaCy models used by this script
+    # Load spaCy model used by this script
     models = []
     missing_models = []
 
@@ -163,7 +163,7 @@ def load_models():
         except OSError:
             missing_models.append(model_name)
 
-    # Give error if some model is missing from the venv
+    # Give error if model is missing from the venv
     if missing_models:
         install_commands = "\n".join(
             f"python -m spacy download {model_name}"
@@ -218,7 +218,7 @@ def add_regex_spans(text, spans):
 
 
 def add_spacy_spans(text, spans, nlp_models):
-    # Find names, locations and organizations with spaCy models
+    # Find names, locations and organizations with spaCy model
     # The checks below make spaCy less aggressive to reduce false positives
     for nlp in nlp_models:
         doc = nlp(text)
@@ -268,7 +268,7 @@ def find_sensitive_spans(text, nlp_models):
     # Add regex matches
     add_regex_spans(text, spans)
 
-    # Add spaCy matches from Finnish and multilingual models
+    # Add spaCy matches from Finnish model
     add_spacy_spans(text, spans, nlp_models)
 
     # Return cleaned spans
@@ -386,7 +386,7 @@ def anonymize_segment(segment, nlp_models):
 
 
 def anonymize():
-    # Load Finnish and multilingual NLP models
+    # Load Finnish NLP model
     nlp_models = load_models()
 
     # Load original transcript
