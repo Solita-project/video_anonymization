@@ -262,7 +262,6 @@ data/output/transcript_background.log   Streamlit background transcript log
 data/output/video_blurred.mp4           Blurred video without final audio
 data/output/video_blurred_preview.mp4   Browser-friendly preview video
 data/output/video_debug_boxes.mp4       Debug video with detection boxes
-data/output/video_report.json           Video review report
 
 data/output/manual_blur_frame.jpg       Frame extracted for manual blur drawing
 data/output/manual_video_blurs.json     Saved manual blur annotations

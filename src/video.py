@@ -1,8 +1,6 @@
 import cv2
 from ultralytics import YOLO
 import time
-from pathlib import Path
-import json
 
 # python -m src.video
 
@@ -14,15 +12,12 @@ from src.video_config import (
     OBJECT_MODEL_PATH,
     OUTPUT_VIDEO_PATH,
     DEBUG_OUTPUT_VIDEO_PATH,
-    REPORT_OUTPUT_PATH,
     PROFILES,
 )
-from src.video_report import build_review_section
 
-WRITE_DEBUG_VIDEO = True
+WRITE_DEBUG_VIDEO = False
 WRITE_BLURRED_VIDEO = True
 
-# MAX_FRAMES = 300  # Set to None to process entire video
 
 # -----------
 # fucntions
@@ -211,12 +206,12 @@ def process_video(
     input_video_path=INPUT_VIDEO_PATH,
     output_video_path=OUTPUT_VIDEO_PATH,
     debug_output_video_path=DEBUG_OUTPUT_VIDEO_PATH,
-    report_output_path=REPORT_OUTPUT_PATH,
     profile_name="cpr",
-    max_frames=300,
+    max_frames=None,
 ):
     profile = PROFILES[profile_name]
     output_video_path.parent.mkdir(parents=True, exist_ok=True)
+
     # Track runtime when the video processing starts and ends
     start_time = time.perf_counter()
     print(f"Start to process the video. Start time: {time.ctime()}")
@@ -251,26 +246,6 @@ def process_video(
     if WRITE_DEBUG_VIDEO:
         debug_out = cv2.VideoWriter(debug_output_video_path, fourcc,fps,(frame_width, frame_height))
 
-    report={
-        "profile": profile_name,
-        "profile_description":profile["description"],
-        "manual_review_required":profile["manual_review_required"],
-        "input_video_path":str(input_video_path),
-        "output_video_path":str(output_video_path),
-        "debug_output_video_path":str(debug_output_video_path),
-        "total_frames":total_frames,
-        "fps":fps,
-        "processed_frames":0,
-        "frames_with_face_detection":0,
-        "frames_with_head_detection":0,
-        "frames_with_object_detection":0,
-        "frames_with_held_face_or_head_boxes": [],
-        "frames_with_no_face_detection": [],
-        "frames_with_no_head_detection": [],
-        "frames_with_no_face_but_head_detected":[],
-        "frames_with_no_face_or_head_detection":[],
-    }
-
     tracked_face_boxes=[]
     tracked_head_boxes=[]
     tracked_object_boxes = []
@@ -295,23 +270,6 @@ def process_video(
         current_face_boxes = get_padded_face_boxes(face_results, frame_width, frame_height,profile["face_padding"])
         current_head_boxes = get_padded_head_boxes(head_results, frame_width, frame_height,profile["head_padding"])
 
-        if current_face_boxes:
-            report["frames_with_face_detection"] += 1
-        if current_head_boxes:
-            report["frames_with_head_detection"] += 1
-        if current_object_boxes:
-            report["frames_with_object_detection"] += 1
-
-        if not current_face_boxes:
-            report["frames_with_no_face_detection"].append(frame_count)
-        if not current_head_boxes:
-            report["frames_with_no_head_detection"].append(frame_count)
-        if not current_face_boxes and current_head_boxes:
-            report["frames_with_no_face_but_head_detected"].append(frame_count)
-        if not current_face_boxes and not current_head_boxes:
-            report["frames_with_no_face_or_head_detection"].append(frame_count)
-        report["processed_frames"] = frame_count
-
         tracked_face_boxes = track_boxes(
             current_face_boxes,
             tracked_face_boxes,
@@ -332,20 +290,6 @@ def process_video(
             profile["object_iou_threshold"],
             profile["object_hold_frames"]
         )
-
-        held_face_boxes=[
-            track["box"]
-            for track in tracked_face_boxes
-            if track["missed"]>0
-        ]
-
-        held_head_boxes=[
-            track["box"]
-            for track in tracked_head_boxes
-            if track["missed"]>0
-        ]
-        if held_face_boxes or held_head_boxes:
-            report["frames_with_held_face_or_head_boxes"].append(frame_count)
 
         boxes_to_blur = [track["box"] for track in tracked_face_boxes]
         boxes_to_blur += [track["box"] for track in tracked_head_boxes]
@@ -370,7 +314,7 @@ def process_video(
             out.write(frame)
 
         if frame_count % 100 == 0:
-            print(f"Processed {frame_count} frames")
+            print(f"Processed {frame_count} frames/{total_frames} total frames")
 
         if max_frames is not None and frame_count >= max_frames:
             print(f"Reached maximum frame limit of {max_frames}. Stopping.")
@@ -388,11 +332,18 @@ def process_video(
     # Track runtime when the video processing ends
     end_time = time.perf_counter()
     elapsed_time = end_time - start_time
-    report["runtime_seconds"] = round(elapsed_time,2)
-    report["runtime_minutes"] = round(elapsed_time/60,2)
-    report["processed_duration_seconds"] = round(report["processed_frames"] / fps, 2) if fps else 0
-
-    report.update(build_review_section(report, fps))
+    summary = {
+        "profile": profile_name,
+        "input_video_path": str(input_video_path),
+        "output_video_path": str(output_video_path),
+        "debug_output_video_path": str(debug_output_video_path),
+        "total_frames": total_frames,
+        "fps": fps,
+        "processed_frames": frame_count,
+        "processed_duration_seconds": round(frame_count / fps, 2) if fps else 0,
+        "runtime_seconds": round(elapsed_time, 2),
+        "runtime_minutes": round(elapsed_time / 60, 2),
+    }
 
     if WRITE_BLURRED_VIDEO:
         print(f"Saved blurred video to: {output_video_path}")
@@ -403,11 +354,7 @@ def process_video(
     print(f"Video processing stopped at: {time.ctime()}")
     print(f"Total runtime: {elapsed_time:.2f} seconds ({elapsed_time / 60:.2f} minutes)")
 
-    report_output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(report_output_path, "w", encoding="utf-8") as f:
-        json.dump(report,f,indent=4,ensure_ascii=False)
-    print(f"Saved report to: {report_output_path}")
-    return report
+    return summary
 
 if __name__ == "__main__":
     process_video()

@@ -8,6 +8,7 @@
 from pathlib import Path
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -32,7 +33,6 @@ OUTPUT_DIR = ROOT_DIR / "data" / "output"
 INPUT_VIDEO_FILE = INPUT_DIR / "video.mp4"
 BLURRED_VIDEO_FILE = OUTPUT_DIR / "video_blurred.mp4"
 BLURRED_PREVIEW_FILE = OUTPUT_DIR / "video_blurred_preview.mp4"
-VIDEO_REPORT_FILE = OUTPUT_DIR / "video_report.json"
 ORIGINAL_TRANSCRIPT_FILE = OUTPUT_DIR / "transcription.json"
 CLEANED_TRANSCRIPT_FILE = OUTPUT_DIR / "cleaned_transcription.json"
 FINAL_VIDEO_FILE = OUTPUT_DIR / "final_video.mp4"
@@ -268,54 +268,56 @@ def save_cleaned_transcript(data):
         json.dump(data, f, indent=4, ensure_ascii=False)
 
 
-def load_video_report():
-    # Load video review report if it exists
-    if not VIDEO_REPORT_FILE.exists():
+def get_video_duration(video_file):
+    # Read duration from ffmpeg metadata output without relying on video_report.json.
+    if not video_file.exists():
         return None
 
-    with open(VIDEO_REPORT_FILE, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        result = subprocess.run(
+            [
+                resolve_ffmpeg(),
+                "-i",
+                str(video_file),
+            ],
+            cwd=ROOT_DIR,
+            env=os.environ.copy(),
+            capture_output=True,
+            text=True,
+        )
+    except RuntimeError:
+        return None
+
+    output = f"{result.stdout}\n{result.stderr}"
+    match = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", output)
+
+    if not match:
+        return None
+
+    hours = int(match.group(1))
+    minutes = int(match.group(2))
+    seconds = float(match.group(3))
+
+    return hours * 3600 + minutes * 60 + seconds
 
 
 def get_processed_video_duration():
-    # Use the report to limit manual blur inputs to the processed video length.
-    report = load_video_report()
-
-    if report is None:
-        return None
-
-    duration = report.get("processed_duration_seconds")
-
-    if duration:
-        return float(duration)
-
-    processed_frames = report.get("processed_frames")
-    fps = report.get("fps")
-
-    if not processed_frames or not fps:
-        return None
-
-    return float(processed_frames) / float(fps)
+    # Limit manual blur inputs using the generated blurred video duration.
+    return get_video_duration(BLURRED_VIDEO_FILE)
 
 
 def get_last_extractable_frame_time():
-    # Frame extraction needs an actual frame timestamp, not the end boundary
-    report = load_video_report()
+    # Frame extraction needs an actual frame timestamp, not the end boundary.
+    duration = get_processed_video_duration()
 
-    if report is None:
+    if duration is None:
         return None
 
-    processed_frames = report.get("processed_frames")
-    fps = report.get("fps")
-
-    if not processed_frames or not fps:
-        return None
-
-    return max(0.0, (float(processed_frames) - 1.0) / float(fps))
+    return max(0.0, duration - 0.1)
 
 
 def clamp_time_input_state(key, max_value):
-    # Clamp old Streamlit widget state when a new shorter video/report is loaded
+    # Clamp old Streamlit widget state when a max value is available
     if max_value is None:
         return
 
@@ -447,7 +449,6 @@ def show_processing_page():
     show_video_section(
         status=status,
         blurred_preview_file=BLURRED_PREVIEW_FILE,
-        load_video_report=load_video_report,
         read_transcript_log=read_transcript_log,
     )
 
